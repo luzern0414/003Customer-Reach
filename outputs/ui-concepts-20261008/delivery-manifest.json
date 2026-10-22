@@ -1,0 +1,107 @@
+{
+  "created_at": "2026-10-08",
+  "author": "Codex",
+  "data_status": "演示数据",
+  "deliverables": [
+    {
+      "title": "AI 获客结果工作台",
+      "file": "01_AI获客结果工作台.png",
+      "native_file": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\01-workbench\\20261008_153411_9bcc61d7_1.png",
+      "size": [
+        1672,
+        941
+      ],
+      "format": "PNG",
+      "processed": false,
+      "sha256": "78987460121089719039dda3346a5afbf118dd8a758afa0ddee9293397f5da89",
+      "byte_identical": true,
+      "bytes": 1495722,
+      "requested_size": "3840x2160",
+      "model": "gpt-image-2.5-sunburst",
+      "warnings": [
+        "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+      ],
+      "source_metadata": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\01-workbench\\20261008_153411_9bcc61d7.json"
+    },
+    {
+      "title": "采购与招投标情报",
+      "file": "02_采购与招投标情报.png",
+      "native_file": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\02-procurement-final\\20261008_153841_4aac33a2_1.png",
+      "size": [
+        1672,
+        941
+      ],
+      "format": "PNG",
+      "processed": false,
+      "sha256": "93cfb194ff78c2f09c510c6ec19b2978dad2aae4e2c33d04693a79536be87224",
+      "byte_identical": true,
+      "bytes": 1544442,
+      "requested_size": "3840x2160",
+      "model": "gpt-image-2.5-sunburst",
+      "warnings": [
+        "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+      ],
+      "source_metadata": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\02-procurement-final\\20261008_153841_4aac33a2.json"
+    },
+    {
+      "title": "客户画像与跟进准备",
+      "file": "03_客户画像与跟进准备.png",
+      "native_file": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\03-customer-profile\\20261008_153420_1ae58809_1.png",
+      "size": [
+        1672,
+        941
+      ],
+      "format": "PNG",
+      "processed": false,
+      "sha256": "f4b810c33cdd26e79dd78aef1a847b83ab9b153e583e4aaec0ded3533badb40f",
+      "byte_identical": true,
+      "bytes": 1499504,
+      "requested_size": "3840x2160",
+      "model": "gpt-image-2.5-sunburst",
+      "warnings": [
+        "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+      ],
+      "source_metadata": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\03-customer-profile\\20261008_153420_1ae58809.json"
+    },
+    {
+      "title": "采购行为分析",
+      "file": "04_采购行为分析.png",
+      "native_file": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\04-purchase-behavior\\20261008_153317_0bbbe38f_1.png",
+      "size": [
+        1672,
+        941
+      ],
+      "format": "PNG",
+      "processed": false,
+      "sha256": "9228068faac02f585a1f93a5f2b548d3a1c03e8d68e7fa4c79dcef687cf493ab",
+      "byte_identical": true,
+      "bytes": 1433853,
+      "requested_size": "3840x2160",
+      "model": "gpt-image-2.5-sunburst",
+      "warnings": [
+        "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+      ],
+      "source_metadata": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\04-purchase-behavior\\20261008_153317_0bbbe38f.json"
+    },
+    {
+      "title": "上下游关系与商机拓展",
+      "file": "05_上下游关系与商机拓展.png",
+      "native_file": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\05-value-chain\\20261008_153427_0d48b3a9_1.png",
+      "size": [
+        1672,
+        941
+      ],
+      "format": "PNG",
+      "processed": false,
+      "sha256": "63f31e6b3065a5dfd370cc4607f6ce6e17485770e620505d6f035e2e27351d3e",
+      "byte_identical": true,
+      "bytes": 1518422,
+      "requested_size": "3840x2160",
+      "model": "gpt-image-2.5-sunburst",
+      "warnings": [
+        "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+      ],
+      "source_metadata": "D:\\Codes\\Client-reach\\outputs\\ui-concepts-20261008\\05-value-chain\\20261008_153427_0d48b3a9.json"
+    }
+  ]
+}

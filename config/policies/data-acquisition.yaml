@@ -1,0 +1,81 @@
+version: 0.1.0
+timezone: Asia/Shanghai
+
+defaults:
+  require_source_record: true
+  require_captured_at: true
+  require_license_basis: true
+  unknown_value: null
+  store_raw_payload: true
+  raw_payload_retention_days: 90
+  pii_display: masked
+  pii_export: blocked_by_default
+  allow_marketing_without_consent: false
+
+source_policy:
+  required_fields:
+    - permission_type
+    - allowed_fields
+    - purpose
+    - rate_limit
+    - retention_days
+    - terms_url
+    - terms_reviewed_at
+  approved_permission_types:
+    - licensed_api
+    - official_open_data
+    - customer_authorized
+    - public_business_page
+    - internal_system
+  reject_if:
+    - terms_review_expired
+    - field_not_in_allowed_fields
+    - purpose_not_approved
+    - source_requires_bypass
+  defaults_for_unapproved_source:
+    auto_ingest: false
+    auto_contact: false
+    marketing_allowed: false
+    redistributable: false
+
+collection:
+  max_retries: 3
+  obey_robots_and_terms: true
+  obey_rate_limits: true
+  stop_on_captcha: true
+  stop_on_login_wall: true
+  stop_on_paywall: true
+  no_credential_stuffing: true
+  no_api_reverse_engineering: true
+  no_phone_reverse_lookup: true
+
+verification:
+  company_identity_priority:
+    - registration_id
+    - normalized_legal_name_and_address
+    - fuzzy_candidate_then_manual_review
+  high_risk_fields_require_human_review:
+    - personal_mobile_phone
+    - procurement_price
+    - procurement_quantity
+    - decision_maker_identity
+    - product_substitution
+  ai_inference_label: recommendation_only
+
+sources:
+  qichacha:
+    mode: authorized_api_or_customer_export_only
+    page_crawler: disabled
+    permission_type: licensed_api
+    auto_ingest: false
+    auto_contact: false
+  alibaba_1688:
+    mode: authorized_api_or_customer_export_only
+    page_crawler: disabled
+    permission_type: licensed_api
+    auto_ingest: false
+    auto_contact: false
+  company_website:
+    mode: public_business_pages_only
+  store_directory:
+    mode: public_business_pages_only

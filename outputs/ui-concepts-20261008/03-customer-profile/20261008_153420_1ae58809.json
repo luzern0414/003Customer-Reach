@@ -1,0 +1,39 @@
+{
+  "created_at": "2026-10-08 15:34:20",
+  "timezone": "Asia/Shanghai",
+  "request": {
+    "model": "gpt-image-2.5-sunburst",
+    "prompt": "Use case: ui-mockup. Generate an outstandingly elegant, deeply informative Chinese customer-profile and sales-preparation page for Client Reach, an AI B2B procurement CRM. Image 3 in a consistent five-page product series. Flat front-facing real application screenshot filling a 16:9 canvas, desktop layout designed at 1920x1080, crisp high-resolution Chinese text. No device mockup, no perspective, no marketing hero.\n\nSHARED STYLE: light premium enterprise UI, #F5F7F8 canvas, white surfaces, #E5EBED fine borders, #182329 graphite typography, #718087 secondary text, restrained #168D81 teal accent, low-saturation blue and amber supporting charts. Microsoft YaHei / Source Han Sans Chinese type with clean numerals. 8px card radii, 6px controls, generous internal margins, very subtle shadows and fine outline icons. Thoughtful editorial hierarchy, clean dense data, no giant empty score tile, no glossy gradients or neon.\n\nSHELL: narrow 176px pale sidebar, teal geometric mark with \"Client Reach\" and small \"AI 获客工作台\". Navigation \"工作台\", \"采购情报\", \"客户画像\", \"采购分析\", \"上下游关系\", divider, \"客户线索\", \"产品知识库\", \"设置\". \"客户画像\" highlighted. Avatar bottom \"林亦 · 销售经理\". 64px global header \"客户画像 / 华辰电子科技有限公司\", search and small top-right pill \"演示数据 · 2026-10-08\".\n\nCOMPANY TOP AREA: understated square avatar \"华\" in teal tint, heading \"华辰电子科技有限公司\", subtitle \"电子制造 · 深圳 · 成立于 2014 年\". Small badges \"制造业采购方\", \"在营\", \"重点跟进\". Right aligned outlined \"导出准备包\" and solid teal \"记录跟进\". Tab bar \"画像概览\", \"采购记录\", \"上下游\", \"联系人\", \"跟进记录\"; overview selected. Slim banner with light-teal background titled \"AI 客户判断\" and concise wording \"PCB 与连接器需求匹配。建议以交期保障与第二供应商试样切入。\" Add a tiny \"AI 推断 · 需销售核验\" label at right.\n\nINFORMATION GRID: main area 1100px, right rail 520px. First main panel \"企业经营画像\" with attractive two-column definition-list rows \"主营产品 智能控制板 / 工业电子组件\", \"人员规模 约 200 人\", \"年营收区间 1–5 亿元\", \"统计口径 2025 年企业资料\", \"生产能力 SMT 贴片 / PCBA 组装\", \"所在地区 深圳 · 宝安\". Small neutral source caption \"示例企业资料 · 2025 年度\". No over-long fake addresses or phone numbers. Company values must be legible and clear.\n\nNext two-column middle row: left \"采购结构\" with a polished donut: \"PCB 42%\", \"连接器 28%\", \"电子元件 18%\", \"其他 12%\", center caption \"近 12 个月公开样本\". Right \"采购与供货偏好\" with four well-crafted compact insights, each has a title and short description: \"交期敏感 / 分批供货与补单\", \"质量优先 / 认证与样板验证\", \"稳定复购 / PCB 与连接器\", \"多供应商 / 第二来源机会\". A small \"行为标签为 AI 推断\" footnote.\n\nBottom main panel \"当前采购机会\" presents one beautiful compact project row \"高密度 PCB 采购\", \"公开预算 ¥128 万\", \"截止 2026-10-18\", \"采购中\" and action \"查看来源\". Below, a subtle historical row \"板端连接器框架采购 · 2026-08-12 · 中标历史\", clearly gray and distinct. Include a small three-item \"拜访准备\" checklist: \"确认层数与认证要求\", \"询问试样数量和验收流程\", \"核实交期、账期和现有供应商\".\n\nRIGHT RAIL: top panel \"产品匹配评估\", prominent but tasteful \"92 / 100\", caption \"规则匹配分 · 不是成交概率\". Horizontal score bars for \"买方资格 40\", \"有效联系 10\", \"主营相关 10\", \"产品匹配 20\", \"其他要素 12\"; understated badges \"公开事实\", \"AI 推断\", \"待核验\". Explain visually score is product-fit, not sales probability. Below \"联系人与决策角色\" with two monogram avatars, \"陈女士 · 采购协调\", status \"公开联系入口\", and \"技术评审负责人 · 待核验\" with amber subtle tag. Buttons \"查看联系来源\", no invented personal numbers. Bottom \"最近动态\" timeline of three meaningful events: \"10-08 生成客户准备包\", \"10-05 发布 PCB 采购公告\", \"09-28 销售记录：关注认证与交期\"; public events and sales-confirmed entries marked with separate tiny source badges.\n\nEvery section has precise alignment, informative content and hierarchy, small source/date captions. Keep the product visually coherent with a modern procurement intelligence system. All data explicitly labeled as demo data, no clipping or random decorative content.",
+    "size": "3840x2160",
+    "quality": "high",
+    "n": 1,
+    "output_format": "png",
+    "background": "auto"
+  },
+  "images": [
+    {
+      "source_size": "1672x941",
+      "source_format": "png",
+      "processed": false,
+      "file": "20261008_153420_1ae58809_1.png",
+      "size": "1672x941",
+      "format": "png"
+    }
+  ],
+  "warnings": [
+    "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+  ],
+  "usage": {
+    "input_tokens": 1137,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 1137
+    },
+    "output_tokens": 4632,
+    "output_tokens_details": {
+      "image_tokens": 4632,
+      "text_tokens": 0
+    },
+    "total_tokens": 5769
+  }
+}

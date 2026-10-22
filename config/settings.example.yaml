@@ -1,0 +1,35 @@
+# 应用配置样例：复制为 settings.yaml 后修改（settings.yaml 不入库）
+app:
+  env: dev
+  host: 127.0.0.1
+  port: 8000
+  frontend_origin: http://localhost:3000
+
+database:
+  url_env: DATABASE_URL        # postgresql+psycopg://user:pass@localhost:5432/acq
+redis:
+  url_env: REDIS_URL           # redis://localhost:6379/0
+
+mcp:
+  mode: inprocess              # inprocess | stdio | http
+
+browser:
+  driver: opencli
+  edge_profile_dir: data/browser-profile/edge-agent
+  extension_dir: C:/Users/Chilth/.opencli/browser-extension
+  session: work
+
+budget:
+  per_run_yuan: 10
+  daily_yuan: 100
+  monthly_yuan: 2000
+  confirm_threshold_yuan: 2
+
+privacy:
+  contact_encryption_key_env: CONTACT_ENC_KEY
+  default_mask_phone: true
+  audit_retention_days: 180
+
+paths:
+  raw_snapshots: data/raw
+  seeds: data/seeds

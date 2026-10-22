@@ -1,0 +1,227 @@
+diff --git a/backend/app/config.py b/backend/app/config.py
+index e5cc4f0..4119f37 100644
+--- a/backend/app/config.py
++++ b/backend/app/config.py
+@@ -85,10 +85,40 @@ def exa_mcp_url() -> str:
+         except (OSError, ValueError):
+             key = ''
+         if not key:
+             try:
+                 found = re.search(r'exa[_ -]?api[_ -]?key\s*[:：=]\s*([A-Za-z0-9\-]{20,})', (ROOT / 'config/apikey.txt').read_text(encoding='utf-8-sig'), re.I)
+                 key = found.group(1) if found else ''
+             except OSError:
+                 key = ''
+     base = 'https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa'
+     return base + ('&exaApiKey=' + quote(key) if key else '')
++
++
++def qcc_mcp_key(location: Path | None = None) -> str:
++    """读取独立企查查 MCP Key；环境变量优先，永不回显或猜测其他服务密钥。"""
++    if 'QCC_MCP_API_KEY' in os.environ:
++        return os.environ['QCC_MCP_API_KEY'].strip()
++    path = location or ROOT / 'config/apikey.txt'
++    try:
++        content = path.read_text(encoding='utf-8-sig')
++    except OSError:
++        return ''
++    try:
++        value = json.loads(content)
++    except (TypeError, ValueError):
++        value = None
++    if isinstance(value, dict):
++        for key_name in ('qcc_mcp_key', 'qcc_api_key'):
++            candidate = value.get(key_name)
++            if isinstance(candidate, str) and candidate.strip():
++                return candidate.strip()
++    for line in content.splitlines():
++        match = re.match(r'^\s*(qcc_mcp_key|qcc_api_key)\s*[:：=]\s*(.*?)\s*$', line, re.I)
++        if match and match.group(2).strip():
++            return match.group(2).strip().strip('"\'')
++    return ''
++
++
++def qcc_mcp_configured(location: Path | None = None) -> bool:
++    """只返回企查查 MCP 是否已配置，不返回密钥本身或任何长度信息。"""
++    return bool(qcc_mcp_key(location))
+diff --git a/backend/app/qcc_mcp.py b/backend/app/qcc_mcp.py
+new file mode 100644
+index 0000000..5ded14c
+--- /dev/null
++++ b/backend/app/qcc_mcp.py
+@@ -0,0 +1,28 @@
++"""企查查官方 MCP 的固定端点边界；协议客户端在后续任务中复用这些定义。"""
++
++from __future__ import annotations
++
++from urllib.parse import urlparse
++
++
++class QccConfigurationError(ValueError):
++    """QCC 配置不满足官方端点或业务白名单约束。"""
++
++
++QCC_SERVER_URLS = {
++    'company': 'https://agent.qcc.com/mcp/company/stream',
++    'operation': 'https://agent.qcc.com/mcp/operation/stream',
++    'risk': 'https://agent.qcc.com/mcp/risk/stream',
++    'tender': 'https://agent.qcc.com/mcp/tender/stream',
++}
++
++
++def qcc_server_url(server: str) -> str:
++    """返回首期允许的官方 QCC MCP URL，拒绝任意用户提供的端点。"""
++    url = QCC_SERVER_URLS.get(server)
++    if not url:
++        raise QccConfigurationError('qcc_server_not_allowed')
++    parsed = urlparse(url)
++    if parsed.scheme != 'https' or parsed.hostname != 'agent.qcc.com':
++        raise QccConfigurationError('qcc_server_not_allowed')
++    return url
+diff --git a/backend/tests/test_qcc_mcp.py b/backend/tests/test_qcc_mcp.py
+new file mode 100644
+index 0000000..c1311d1
+--- /dev/null
++++ b/backend/tests/test_qcc_mcp.py
+@@ -0,0 +1,47 @@
++"""企查查 MCP 凭据、端点与协议适配器的离线契约测试。"""
++
++import pytest
++
++from app.config import qcc_mcp_configured, qcc_mcp_key
++from app.qcc_mcp import QccConfigurationError, qcc_server_url
++
++
++def test_qcc_env_key_wins_without_exposing_value(monkeypatch, tmp_path):
++    monkeypatch.setenv("QCC_MCP_API_KEY", "synthetic-qcc-key")
++    assert qcc_mcp_key(tmp_path / "missing") == "synthetic-qcc-key"
++    assert qcc_mcp_configured(tmp_path / "missing") is True
++
++
++def test_qcc_file_parser_only_accepts_explicit_field(tmp_path, monkeypatch):
++    path = tmp_path / "apikey.txt"
++    path.write_text(
++        "https://model.invalid/v1\nsk-model-key\nqcc_mcp_key=synthetic-qcc-key\n",
++        encoding="utf-8",
++    )
++    monkeypatch.delenv("QCC_MCP_API_KEY", raising=False)
++    assert qcc_mcp_key(path) == "synthetic-qcc-key"
++
++
++def test_qcc_json_parser_accepts_explicit_alias(tmp_path, monkeypatch):
++    path = tmp_path / "apikey.json"
++    path.write_text('{"qcc_api_key": "synthetic-qcc-key"}', encoding="utf-8")
++    monkeypatch.delenv("QCC_MCP_API_KEY", raising=False)
++    assert qcc_mcp_key(path) == "synthetic-qcc-key"
++
++
++def test_qcc_parser_does_not_guess_unlabelled_model_key(tmp_path, monkeypatch):
++    path = tmp_path / "apikey.txt"
++    path.write_text("https://model.invalid/v1\nsk-model-key\n", encoding="utf-8")
++    monkeypatch.delenv("QCC_MCP_API_KEY", raising=False)
++    assert qcc_mcp_key(path) == ""
++    assert qcc_mcp_configured(path) is False
++
++
++@pytest.mark.parametrize("server", ["company", "operation", "risk", "tender"])
++def test_qcc_official_endpoint_is_allowed(server):
++    assert qcc_server_url(server).startswith("https://agent.qcc.com/mcp/")
++
++
++def test_qcc_endpoint_rejects_unknown_server():
++    with pytest.raises(QccConfigurationError, match="qcc_server_not_allowed"):
++        qcc_server_url("document")
+diff --git a/config/README.md b/config/README.md
+index ae815c7..e87b810 100644
+--- a/config/README.md
++++ b/config/README.md
+@@ -1,37 +1,38 @@
+ # 配置目录
+ 
+ 本项目只有本机单工作空间（开发与生产同一套部署方式），配置分“本地密钥文件”“可提交的非敏感配置”“界面设置（数据库）”三类。
+ 
+ ## 1. 文件清单
+ 
+ | 文件 | 是否提交 | 用途 | 必填 |
+ |---|---|---|---|
+-| `apikey.txt` | **否**（.gitignore） | 模型服务地址与 Key；可选 LangSmith Key（`lsv2_…`）、Exa Key（`exa_api_key=`）。模板见 `apikey.example.txt` | 是 |
++| `apikey.txt` | **否**（.gitignore） | 模型服务地址与 Key；可选 LangSmith Key（`lsv2_…`）、Exa Key（`exa_api_key=`）、企查查 MCP Key（`qcc_mcp_key=`）。模板见 `apikey.example.txt` | 是 |
+ | `langsmith.json` | 是（无密钥） | `enabled` 是否上报链路、`project` 项目名、`hide_inputs/hide_outputs` 是否隐藏提示词与输出 | 否 |
+ | `langsmith.example.json` | 是 | 生产建议值（默认关闭、隐藏输入输出） | — |
+ | `acq_tool.toml` | 是 | 招投标采集复用的 OpenCLI/Edge/Exa 配置：内置 OpenCLI 目录（`vendor/opencli`）、Agent 专用 Edge 配置目录、OpenCLI 扩展目录、插件目录、检索天数与条数 | 否 |
+ | `sources.yaml`、`sources/`、`policies/`、`schemas/` | 是 | 来源授权、限速、隐私与数据结构说明 | — |
+ | `backup-keys/`、`secrets/` | **否** | 加密备份的恢复钥与本地副本，只在本机 | — |
+ 
+ 密钥只放在 `apikey.txt` 或环境变量中，不写进其他配置文件、日志或文档；`apikey.txt` 的读取只解析不回显。
+ 
+ ## 2. 环境变量（优先于文件）
+ 
+ | 变量 | 默认 | 说明 |
+ |---|---|---|
+ | `CLIENTREACH_MODEL_URL` / `CLIENTREACH_MODEL_KEY` | 读 `apikey.txt` | 模型服务地址与 Key |
+ | `LANGSMITH_API_KEY` | 读 `apikey.txt` 中 `lsv2_` | 设为空字符串可显式关闭 |
+ | `LANGSMITH_TRACING` | `langsmith.json.enabled` | `true/false` |
+ | `LANGSMITH_PROJECT` | `client-reach` | LangSmith 项目名 |
+ | `LANGSMITH_HIDE_INPUTS` / `LANGSMITH_HIDE_OUTPUTS` | `langsmith.json`，缺省 `true` | `false` 时上传提示词与输出（含公开联系方式），仅在自有账号调试时使用 |
+ | `EXA_API_KEY` | 读 `apikey.txt` 中 `exa_api_key` | 不配置时匿名访问 Exa，密集使用会被限流（429） |
++| `QCC_MCP_API_KEY` | 读 `apikey.txt` 中 `qcc_mcp_key` / `qcc_api_key` | 企查查官方 MCP Bearer Key；只报告是否配置，不回显 Key |
+ | `CLIENTREACH_DATA_DIR` | `data/app` | 业务库、checkpoint、上传文件、企业标识缓存（`logos/`）目录 |
+ | `CLIENTREACH_DATABASE_URL` | `sqlite:///data/app/clientreach.db` | 业务数据库连接 |
+ | `CLIENTREACH_TENDER_ENABLED` | 开启 | `false` 时不访问招投标平台（测试默认关闭） |
+ | `CLIENTREACH_SEARCH_FALLBACK` | 开启 | `false` 时 Exa 失败不再改用 OpenCLI 百度/搜狗检索（测试默认关闭） |
+ | `OPENCLI_PLUGIN_DIRS` | `src/opencli-plugin` | 内置 OpenCLI 从这些目录加载插件（`;` 分隔），无需 `opencli plugin install` |
+ | `CLIENTREACH_WEB_DIST` | `web/dist` | 前端构建目录 |
+ | `SSL_CERT_FILE` / `SSL_CERT_DIR` | certifi | 自定义 CA |
+ 
+ ## 3. 界面设置（设置 → 工作空间，保存在数据库）
+ 
+diff --git a/config/apikey.example.txt b/config/apikey.example.txt
+index 31c9d6e..e553a38 100644
+--- a/config/apikey.example.txt
++++ b/config/apikey.example.txt
+@@ -1,8 +1,9 @@
+ # 复制为 config/apikey.txt 后填写（该文件已在 .gitignore 中，禁止提交）。支持两种写法，二选一。
+-# 写法一：纯文本，第一行模型服务地址，第二行模型 Key；可选的 LangSmith Key 以 lsv2_ 开头；可选 Exa Key 用 exa_api_key= 标注。
++# 写法一：纯文本，第一行模型服务地址，第二行模型 Key；可选的 LangSmith Key 以 lsv2_ 开头；可选 Exa Key 用 exa_api_key= 标注；企查查 MCP Key 用 qcc_mcp_key= 标注。
+ https://your-model-gateway.example.com/v1
+ sk-请替换为模型服务Key
+ lsv2_请替换为LangSmith Key（可选）
+ exa_api_key=请替换为Exa Key（可选）
++qcc_mcp_key=请替换为企查查 MCP Key（可选）
+ # 写法二：JSON（删除上面几行后使用）
+-# {"base_url": "https://your-model-gateway.example.com/v1", "api_key": "sk-…", "langsmith_api_key": "lsv2_…", "exa_api_key": "…"}
++# {"base_url": "https://your-model-gateway.example.com/v1", "api_key": "sk-…", "langsmith_api_key": "lsv2_…", "exa_api_key": "…", "qcc_mcp_key": "…"}
+diff --git a/config/sources.yaml b/config/sources.yaml
+index f685e16..00c86c6 100644
+--- a/config/sources.yaml
++++ b/config/sources.yaml
+@@ -1,23 +1,27 @@
+ # 数据源注册表（草案）—— 详见 docs/04-data-sources-integration.md
+ # channels: 获取通道顺序（api | mcp | exa | http | opencli），Fetch Router 按顺序尝试并做完整性校验
+ # account: OpenCLI 使用的登录账号（Agent 专用 Edge 配置）；wait_seconds: 页面渲染等待
+ # rate: 最小请求间隔(秒)；daily_cap: 每日上限；ttl: 缓存(秒)
+ 
+ sources:
+   qcc:
+     name: 企查查开放平台
+     enabled: true
+-    mode: openapi          # openapi | mcp
++    mode: mcp              # MCP 与旧版 OpenAPI 申请分开管理
+     base_url: https://api.qichacha.com
+-    mcp_url: https://agent.qcc.com   # 官方 MCP，接入方式以控制台为准
+-    auth_env: [QCC_APP_KEY, QCC_SECRET_KEY]
++    mcp_servers:
++      company: https://agent.qcc.com/mcp/company/stream
++      operation: https://agent.qcc.com/mcp/operation/stream
++      risk: https://agent.qcc.com/mcp/risk/stream
++      tender: https://agent.qcc.com/mcp/tender/stream
++    auth_env: [QCC_MCP_API_KEY]
+     rate: 0.2
+     ttl: { basic: 2592000, risk: 604800, tender: 86400 }
+     cost_yuan:            # 2026-10-08 官网标价
+       "886": 0.10   # 企业模糊搜索
+       "410": 0.20   # 工商信息
+       "735": 2.00   # 工商详情
+       "731": 2.00   # 股东信息
+       "884": 1.00   # 对外投资
+       "958": 1.00   # 招投标信息
+       "718": 0.50   # 招聘

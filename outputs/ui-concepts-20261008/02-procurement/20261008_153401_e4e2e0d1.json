@@ -1,0 +1,39 @@
+{
+  "created_at": "2026-10-08 15:34:01",
+  "timezone": "Asia/Shanghai",
+  "request": {
+    "model": "gpt-image-2.5-sunburst",
+    "prompt": "Use case: ui-mockup. Generate one exceptionally polished, richly populated Chinese procurement and tender intelligence page for the Client Reach AI B2B CRM. Image 2 of a coherent five-page application series. Flat front-facing full-frame desktop screenshot, 16:9 landscape, UI designed for 1920x1080 with high-resolution sharp typography; no device frame, no perspective. Render real readable Chinese labels.\n\nEXACT SHARED VISUAL SYSTEM: refined light-mode enterprise business UI. #F5F7F8 canvas, white surfaces, #E5EBED hairline borders, #182329 graphite headings, #718087 secondary text; restrained teal #168D81 accent, low-saturation blue and amber chart statuses. Chinese Microsoft YaHei / Source Han Sans visual typography, Inter-like numbers. Compact 8px radius cards, 6px controls, thin icons, near-invisible shadows. Sophisticated spacing and alignment, high information density with clean breathing room. No neon, no glossy gradients, no generic empty dashboard tiles.\n\nSHARED SHELL: 176px light sidebar with a teal geometric mark \"Client Reach\", subtitle \"AI 获客工作台\". Navigation \"工作台\", \"采购情报\", \"客户画像\", \"采购分析\", \"上下游关系\", divider, \"客户线索\", \"产品知识库\", \"设置\"; \"采购情报\" selected. Bottom avatar \"林\", \"林亦 · 销售经理\". 64px white global header breadcrumb \"采购情报 / 公开采购与招投标\", discreet search field, top right \"演示数据 · 2026-10-08\".\n\nMAIN HEADER: \"采购与招投标情报\" with short subtitle \"识别真实采购人，找到仍可参与的采购机会\". Top right buttons \"订阅关键词\" and teal \"新建监测\". Tabs \"当前采购 42\", \"历史公告 186\", \"已收藏 12\"; current selected with teal underline. A slim metric band \"公开采购 42\", \"7 天内截止 12\", \"产品匹配 18\", \"公开预算合计 ¥3,860 万\" with tiny sparklines and thin dividers. Filtering row: \"电子制造\", \"珠三角\", \"PCB / 连接器\", \"近 30 天\", \"全部预算\" and clear light outline dropdowns.\n\nCENTRAL LAYOUT: wide 1050px procurement table on left, 580px readable selected-announcement detail on right. Left heading \"采购机会\" with small metadata \"42 条结果 · 最近更新 10:32\". Columns \"采购项目 / 采购人\", \"阶段\", \"公开预算\", \"截止\", \"匹配\". Six rows with unobtrusive pale chips, small favorite stars:\n\"高密度 PCB 采购项目\" / \"华辰电子科技有限公司\" / \"采购中\" / \"¥128 万\" / \"10-18\" / \"92\";\n\"工业连接器年度采购\" / \"远景自动化\" / \"采购中\" / \"¥86 万\" / \"10-21\" / \"87\";\n\"精密钣金加工框架项目\" / \"凌锐装备\" / \"即将截止\" / \"¥210 万\" / \"10-16\" / \"85\";\n\"电源模块采购计划\" / \"瑞腾新能源\" / \"采购中\" / \"¥156 万\" / \"10-25\" / \"83\";\n\"传感器组件采购公告\" / \"北辰仪器\" / \"采购中\" / \"未披露\" / \"10-30\" / \"79\";\n\"板端连接器供应商征集\" / \"星河智造\" / \"期限待核验\" / \"未披露\" / \"待核验\" / \"76\".\nFirst row selected in pale teal, all rows legible and horizontally aligned. A compact pagination footer \"1–6 / 共 42 条\".\n\nRIGHT DETAIL: a small source chip \"企业采购公告 · 原文来源\", bold title \"高密度 PCB 采购项目\", tag \"采购中\", bookmark icon. Clear two-column fact grid: \"采购人 华辰电子科技有限公司\", \"项目编号 HC-PCB-2026-017\", \"公开预算 ¥128 万\", \"发布日期 2026-10-05\", \"截止时间 2026-10-18 17:00\", \"采购品类 HDI PCB\". Subtle amber line \"公开预算不等于成交金额\". Header \"采购需求摘要\" followed by three compact rows \"6–8 层 HDI 板\", \"样板验证后分批交付\", \"RoHS / ISO 认证要求\". A project timeline with connected circles \"公告发布 10-05\", \"答疑 10-12\", \"截止 10-18\", showing current progress. Section \"来源与身份核验\" with exact small labels \"采购人身份 · 原文匹配\", \"截止时间 · 原文匹配\", \"采购代理 · 单独列示\". A short inset quotation \"采购人：华辰电子科技有限公司；提交截止：2026年10月18日17时。\" Footer actions teal \"加入跟进\", outline \"查看公告原文\".\n\nBOTTOM ANALYSIS STRIP under table: two distinct chart areas \"采购品类分布\" a clean donut with PCB 42%, 连接器 28%, 电子元件 18%, 其他 12%; and \"近 14 天截止日历\" a refined date-strip heatmap with a few amber/teal cells, plus tiny upcoming project labels. Use the charts to communicate urgency, with clear legends and units. All content must fit and retain polished hierarchy. All data is demonstration data; never imply historical awards are live opportunities.",
+    "size": "3840x2160",
+    "quality": "high",
+    "n": 1,
+    "output_format": "png",
+    "background": "auto"
+  },
+  "images": [
+    {
+      "source_size": "1672x941",
+      "source_format": "png",
+      "processed": false,
+      "file": "20261008_153401_e4e2e0d1_1.png",
+      "size": "1672x941",
+      "format": "png"
+    }
+  ],
+  "warnings": [
+    "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+  ],
+  "usage": {
+    "input_tokens": 1213,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 1213
+    },
+    "output_tokens": 4632,
+    "output_tokens_details": {
+      "image_tokens": 4632,
+      "text_tokens": 0
+    },
+    "total_tokens": 5845
+  }
+}

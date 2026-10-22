@@ -1,0 +1,9 @@
+{
+  "name": "clientreach-mcp-browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pinned official Playwright MCP runtime for local tool verification.",
+  "dependencies": {
+    "@playwright/mcp": "0.0.83"
+  }
+}

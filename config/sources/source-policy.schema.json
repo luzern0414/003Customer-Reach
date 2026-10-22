@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source Policy",
+  "type": "object",
+  "required": ["source_id", "permission_type", "allowed_fields", "purpose", "terms_reviewed_at", "auto_ingest", "auto_contact"],
+  "properties": {
+    "source_id": {"type": "string"},
+    "permission_type": {
+      "enum": ["licensed_api", "official_open_data", "customer_authorized", "public_business_page", "internal_system"]
+    },
+    "allowed_fields": {"type": "array", "items": {"type": "string"}},
+    "purpose": {"type": "string"},
+    "terms_url": {"type": ["string", "null"], "format": "uri"},
+    "terms_reviewed_at": {"type": "string", "format": "date"},
+    "rate_limit": {"type": ["string", "null"]},
+    "retention_days": {"type": "integer", "minimum": 1},
+    "auto_ingest": {"type": "boolean"},
+    "auto_contact": {"type": "boolean"},
+    "marketing_allowed": {"type": "boolean", "default": false},
+    "redistributable": {"type": "boolean", "default": false}
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "created_at": "2026-10-08 16:18:14",
+  "timezone": "Asia/Shanghai",
+  "request": {
+    "model": "gpt-image-2.5-sunburst",
+    "prompt": "Create a high-fidelity Chinese procurement-information detail screen for Client Reach, a minimal AI Agent research workspace. Flat full-frame front-facing desktop application, 16:9, designed at 1920x1080, crisp readable Chinese. This is a precise card-and-list research result, not a tender dashboard.\n\nUNIFIED LOOK: white #FFFFFF / near-white #F7F8FA, graphite #20252C, muted gray #76808B, very fine #E7EAEE borders, extremely pale blue #EAF3FD selection, muted #597FA7 blue links. BLACK / WHITE / GRAY / LIGHT BLUE ONLY. No teal, purple, orange, gradients, gauges, pie charts, huge KPI tiles or sales funnel. Chinese text like Microsoft YaHei / Source Han Sans, good 14–16px body scale, quiet typography, 10px card radius, natural text wrapping and content-height panels.\n\nSHELL: 176px pale gray left sidebar, black R square icon \"Client Reach\", small \"Agent 工作台\". EXACTLY THREE menus \"工作台\", \"查询结果\", \"设置\"; query results selected pale blue. Bottom tiny user \"林 / 本地工作空间\". Simple 56px global header \"查询结果 / 企业详情\", top right \"公开研究快照 · 2026-10-08\".\n\nDETAIL HEADER: back link \"← 返回查询结果\"; monogram \"比\", title \"比亚迪股份有限公司\", tags \"集团汇总\", \"公开采购样本\". Quiet actions \"导出资料\", \"继续研究\". Immediately under identity show a beautiful three-option TOP DOCK pill with EXACT names \"客户画像\", \"采购信息\", \"上下游关系\". Procurement selected pale blue. Do NOT add these tabs to the sidebar.\n\nSMALL SUMMARY ABOVE CONTENT: one restrained sentence \"公开样本：11 个独立项目 · 15 条公告\" and a small subtitle \"2025-10-08 至 2026-10-08 · 需求数量不等于实际成交\". These are textual summary, not big statistic blocks. Simple toolbar chips \"全部买方\", \"全部品类\", \"按公告时间\", small search \"搜索产品或项目\".\n\nMAIN BODY: a 2-column layout, about 70% width for a flowing 2-column grid of FOUR natural-height procurement cards and 30% for a single \"采购分析\" list card. Card heights reflect data amounts; long buyer names wrap. Cards have clean headings, small date at top right, a subtle monochrome phase badge, short key/value lists, and source link footer. No large table, no fancy graph. Display ONLY these real records:\n\nCARD A \"智能体平台\". Date \"2026-08-28\". Status \"截止已过 · 结果未知\". Rows \"采购人：深圳市比亚迪锂电池有限公司\", \"需求：新增国产服务器 1 台\", \"规格：≤10U；≥16 张 GPU；单卡≥32GB\", \"未税预算：137 万元\". Tiny note \"现网 4 台服务器仅为调优对象\". Source footer \"诚E招原公告 ↗\".\n\nCARD B \"气碎机\". Date \"2026-08-31\". Status \"截止已过 · 结果未知\". Rows \"采购人：惠州比亚迪电池有限公司\", \"需求：1 台\", \"规格：50kg/h；负极材料树脂碳；氮气内循环\", \"未税预算：160 万元\". Source \"诚E招原公告 ↗\".\n\nCARD C \"软包三电极电池检测柜\". Date \"2026-05-13\". Status \"截止已过 · 结果未知\". Rows \"采购人：深圳市比亚迪锂电池有限公司\", \"需求：5 台\", \"规格：5V30A；16CH/台\", \"未税预算：46.5 万元\". Small line \"最终品牌型号未披露\". Source \"诚E招原公告 ↗\".\n\nCARD D \"100Kg 硅沉积流化床\". Date \"二次招标 2026-07-28\". Status \"候选公示 · 未见最终结果\". Rows \"采购人：惠州比亚迪电池有限公司\", \"需求：1 台；单次加料 40–60kg\", \"未税预算：200 万元\", \"阶段：初次招标 → 二次招标 → 候选公示\". Source \"原公告及候选公示 ↗\". Small note \"同项目重招不计复购\".\n\nRIGHT ANALYSIS CARD, natural height and ample margins, exact heading \"采购分析\". Subheading \"已取得的事实\" with 3 short list items \"两家实际买方\", \"材料制备与分析项目占样本 7/11\", \"8 个项目披露需求数量\". Subheading \"可判断的特征\" with short sentences \"存在设备与算力建设需求。\" and \"公告可比较规格与交货条件。\" Then tiny label \"基于公开样本\". Subheading \"仍需补充\" with 3 clear rows \"最终成交型号和数量\", \"实际复购周期\", \"下一次采购时间\". A pale gray small note \"缺少连续订单记录，不给复购概率\". Bottom outline action \"让 Agent 补查结果\".\n\nBOTTOM SMALL FOOTNOTE: \"金额为原文元 / 万元口径，币种未明确；预算和候选报价不是成交额。\" DO NOT put RMB symbol or currency code on these budgets. NO ongoing purchase label: all displayed tender deadlines have passed as of the research snapshot. NO fabricated deal probability or actual purchased quantity. Keep layout concise, calm, useful and card-based with natural height.",
+    "size": "2048x1152",
+    "quality": "high",
+    "n": 1,
+    "output_format": "png",
+    "background": "auto"
+  },
+  "images": [
+    {
+      "source_size": "1672x941",
+      "source_format": "png",
+      "processed": false,
+      "file": "20261008_161814_d115639b_1.png",
+      "size": "1672x941",
+      "format": "png"
+    }
+  ],
+  "warnings": [
+    "第 1 张实际尺寸 1672x941 与请求 2048x1152 不一致。"
+  ],
+  "usage": {
+    "input_tokens": 1211,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 1211
+    },
+    "output_tokens": 1158,
+    "output_tokens_details": {
+      "image_tokens": 1158,
+      "text_tokens": 0
+    },
+    "total_tokens": 2369
+  }
+}

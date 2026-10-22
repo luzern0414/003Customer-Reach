@@ -1,0 +1,110 @@
+/* 共享组件样式：企业头像、招投标板块与早期组件补齐；颜色沿用 theme.css 令牌，正文不小于14px。 */
+:root{--accent:#1764b2;--accent-soft:#e9f2fc;--surface:#f6f8fb;--ink-2:#3d4b5e}
+
+/* 企业头像：有官网图标时白底留白居中，否则显示企业首字 */
+.company-avatar{display:grid;place-items:center;flex:none;overflow:hidden;border:1px solid var(--line);background:#edf1f5;color:#374459;font-weight:600;border-radius:10px;user-select:none}
+.company-avatar.small{width:36px;height:36px;font-size:17px;border-radius:8px}
+.company-avatar.medium{width:53px;height:53px;font-size:26px}
+.company-avatar.large{width:72px;height:72px;font-size:36px;border-radius:12px}
+.company-avatar.has-logo{background:#fff;padding:6px}
+.company-avatar.large.has-logo{padding:9px}
+.company-avatar img{width:100%;height:100%;object-fit:contain;display:block}
+
+/* 招投标与合作关系 */
+.tender-intel{margin-top:18px}
+.tender-empty{padding:8px 0 4px}
+.tender-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:6px 0 18px}
+.tender-stats>div{background:var(--surface);border-radius:10px;padding:12px 14px}
+.tender-stats dt{font-size:14px;color:var(--muted)}
+.tender-stats dd{margin:2px 0 0;font-size:24px;font-weight:600;color:var(--ink);line-height:1.4}
+.tender-stats small{display:block;font-size:14px}
+.tender-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px}
+.tender-panel{min-width:0}
+.tender-panel h3{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;margin:0 0 12px;color:var(--ink)}
+.tender-items{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+.tender-items-label{font-size:14px;color:var(--muted);margin-right:4px}
+.item-chip{display:inline-flex;align-items:center;font-size:14px;line-height:1.5;padding:1px 8px;border-radius:6px;background:var(--accent-soft);color:#24507f;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-chip small{color:#5a7799;margin-left:2px}
+.tender-list{list-style:none;margin:0;padding:0}
+.tender-list>li{padding:10px 0;border-top:1px solid #eef2f6}
+.tender-list>li:first-child{border-top:0}
+.tender-line{display:flex;gap:12px;align-items:baseline;justify-content:space-between}
+.tender-line a,.tender-line span{font-size:15px;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tender-line a:hover{color:var(--accent)}
+.tender-line time{flex:none;font-size:14px;color:var(--muted)}
+.tender-meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:6px;font-size:14px;color:var(--ink-2)}
+.role-tag{font-size:14px;padding:0 7px;border-radius:5px;background:#eaf6ee;color:#25704a}
+.role-tag.candidate{background:#fff4e5;color:#8a5a12}
+.text-button{border:0;background:none;padding:0;color:var(--accent);font-size:14px;display:inline-flex;align-items:center;gap:4px}
+.text-button:hover{text-decoration:underline;text-underline-offset:3px}
+.segmented{display:inline-flex;background:var(--surface);border-radius:8px;padding:3px;gap:2px;margin-bottom:8px}
+.segmented button{border:0;background:none;padding:5px 14px;border-radius:6px;font-size:14px;color:var(--ink-2)}
+.segmented button.active{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 3px #1a2b4014}
+.segmented small{font-size:14px;color:var(--muted);margin-left:2px}
+.relation-hint{font-size:14px;margin:0 0 10px}
+.partner-bars{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.partner-bars li{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(60px,1fr) auto auto;gap:10px;align-items:center}
+.partner-name{display:flex;flex-direction:column;min-width:0}
+.partner-name>span:first-child{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.basis-tags{display:flex;gap:4px}
+.basis-tag{font-size:14px;color:var(--muted)}
+.basis-tag+.basis-tag::before{content:'· '}
+.partner-bars .bar-track,.tender-fallback .bar-track{display:block;height:8px;border-radius:4px;background:#edf2f8;overflow:hidden}
+.partner-bars .bar-track>span,.tender-fallback .bar-track>span{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.partner-count{font-size:14px;color:var(--ink-2);white-space:nowrap}
+.partner-source{font-size:14px;white-space:nowrap}
+.tender-wins{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.tender-wins>summary{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:15px;font-weight:600;color:var(--ink);list-style:none}
+.tender-wins>summary::-webkit-details-marker{display:none}
+.tender-wins>p{font-size:14px;margin:6px 0}
+.registration-source{display:block;margin-top:8px;font-size:14px}
+@media(max-width:1100px){.tender-grid{grid-template-columns:minmax(0,1fr)}.tender-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:620px){.tender-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.partner-bars li{grid-template-columns:minmax(0,1fr) auto}.partner-bars .bar-track,.partner-source{display:none}.tender-line{flex-direction:column;gap:2px}.tender-line a,.tender-line span{white-space:normal}}
+
+/* 工具调用记录（对话中默认折叠） */
+.tool-activity summary{display:flex;align-items:center;gap:6px;padding:3px 0;list-style:none;color:#68778c;font-size:14px}
+.tool-activity summary::-webkit-details-marker{display:none}
+.disclosure-arrow{font-size:18px;line-height:1;transition:transform .15s;display:inline-block}
+details[open]>summary>.disclosure-arrow{transform:rotate(90deg)}
+.tool-live{color:var(--accent);font-size:14px}
+.tool-activity-body{padding:2px 0 4px 14px}
+.tool-call summary{flex-wrap:wrap;padding:4px 0}
+.tool-call-state{margin-left:auto}
+.tool-call-body{padding:2px 0 8px 16px}
+.tool-call-body p{margin:6px 0;font-size:14px}
+.tool-call-body a{display:block;margin:4px 0;font-size:14px;overflow-wrap:anywhere}
+.tool-command{color:#4f5d70;overflow-wrap:anywhere}
+.tool-error,.parse-warning{color:#6b7280;overflow-wrap:anywhere;font-size:14px}
+
+/* 对话与销售跟进页的早期组件 */
+.new-conversation{width:100%;min-height:36px;justify-content:flex-start;font-size:15px;font-weight:600}
+.history-empty{padding:12px;color:var(--muted);font-size:14px}
+.stop-button{border:1px solid var(--line);background:#fff;color:var(--ink-2);border-radius:8px;padding:6px 12px;font-size:14px}
+.user-markdown{white-space:normal}.user-markdown p:last-child{margin-bottom:0}
+.procurement-signals h3{margin:16px 0 8px;font-size:16px;font-weight:600}
+.view-tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin-bottom:20px;overflow-x:auto}
+.view-tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:0 0 12px;font-size:15px;color:var(--muted);display:flex;align-items:center;gap:7px;white-space:nowrap}
+.view-tabs button.active{border-bottom-color:var(--accent);color:var(--ink);font-weight:600}
+.view-tabs small{font-size:14px}
+.count-pill{display:inline-flex;background:#eef2f6;padding:2px 8px;border-radius:6px;font-size:14px;color:var(--muted)}
+.lead-name{border:0;padding:0;background:transparent;color:var(--ink);text-align:left;font-size:15px;font-weight:600}
+.lead-name:hover{color:var(--accent)}
+.crm-status{display:flex;align-items:center;gap:6px;color:var(--ink-2);font-size:14px}
+.crm-status i{width:6px;height:6px;border-radius:50%;background:#b5c0cd}
+.evidence-card{border-bottom:1px solid var(--line);padding:16px 0;font-size:14px}
+.evidence-card blockquote{border-left:2px solid var(--line);color:#5f6c7d;line-height:1.8;padding-left:14px;margin:12px 0;white-space:pre-wrap}
+
+/* 设置 · 网站指引 */
+.guide-list{display:grid;gap:12px}
+.guide-card{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fff}
+.guide-card header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:6px}
+.guide-card header strong{font-size:16px;color:var(--ink)}
+.guide-card header small{flex-basis:100%;font-size:14px}
+.guide-card p{font-size:14px;color:var(--ink-2);margin:4px 0;line-height:1.7}
+.guide-label{display:inline-block;min-width:64px;color:var(--muted)}
+.tender-signals{margin-top:10px}
+.tender-signals .tender-list>li{padding:8px 0}
+.overview-facts dt{white-space:nowrap}
+.settings-toolbar{justify-content:flex-end;margin-bottom:0}
+.section-hint{font-size:14px;margin:6px 0 14px}
+.card-empty{font-size:14px;margin:14px 0 4px}

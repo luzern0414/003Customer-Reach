@@ -1,0 +1,2 @@
+# Official fetch server and SDK, installed in the isolated local environment.
+mcp-server-fetch==2026.8.18

@@ -1,0 +1,39 @@
+{
+  "created_at": "2026-10-08 15:34:27",
+  "timezone": "Asia/Shanghai",
+  "request": {
+    "model": "gpt-image-2.5-sunburst",
+    "prompt": "Use case: ui-mockup. Generate a remarkably elegant and useful Chinese upstream/downstream relationship intelligence page for Client Reach, an AI B2B procurement CRM. Image 5 in a consistent five-page application design series. Flat front-facing complete desktop screenshot filling a 16:9 landscape canvas, UI designed at 1920x1080, high-resolution extremely legible Chinese text. No perspective, no monitor/device frame, no 3D, no futuristic hologram. The graph should be a real navigable business relationship interface.\n\nSHARED VISUAL LANGUAGE: refined light-mode enterprise SaaS with #F5F7F8 background, white panels, #E5EBED fine borders, #182329 graphite headings, #718087 muted text, restrained teal #168D81 accent; low-saturation blue for downstream and muted amber for potential relationships. Microsoft YaHei / Source Han Sans Chinese lettering and clean Inter-like numerals. Compact 8px card radii, 6px buttons, fine outline icons, subtle shadow. Generous whitespace, outstanding systematic alignment. No neon network, no random spiderweb, no blue-purple gradients, no oversized empty metric cards.\n\nSHARED SHELL: 176px pale sidebar, teal geometric logo \"Client Reach\", subtitle \"AI 获客工作台\". Navigation \"工作台\", \"采购情报\", \"客户画像\", \"采购分析\", \"上下游关系\", divider, \"客户线索\", \"产品知识库\", \"设置\". \"上下游关系\" selected in pale teal. Bottom avatar \"林亦 · 销售经理\". Global header \"上下游关系 / 华辰电子科技有限公司\", search, and small top-right \"演示数据 · 2026-10-08\".\n\nPAGE TOP: heading \"上下游关系与商机拓展\", subtitle \"供应商看懂下游客户，工厂比较上游供货\". Right buttons \"保存视图\" and teal \"拓展相似客户\". Compact filter toolbar \"华辰电子科技有限公司\", \"一度关系\", \"全部品类\", segmented selector \"公开关系 | 潜在关联\". Metric strip \"上游供应商 8\", \"下游客户 12\", \"公开关联 16\", \"可拓展商机 5\". All counts are demo values.\n\nMAIN COMPOSITION: large white 1100px graph surface left and 510px relationship/insight rail right. Graph header \"企业关系图谱\", small caption \"中心企业 · 最近更新 2026-10-08\", tiny zoom controls + / - / fit at bottom right. Graph itself has a disciplined horizontal layered layout, lots of room around labels, no crossing clutter. A faint dotted canvas grid only if extremely subtle. Three columns with clear top labels \"上游供货\", \"目标客户\", \"下游应用\".\n\nCENTER NODE: an elegant 240x120-ish raised white/teal-outlined card with a small \"华\" avatar, exact name \"华辰电子科技\", secondary \"电子制造 · 深圳\", tiny badge \"制造业采购方\", and \"当前 PCB 采购 ¥128 万\". It is the selected focus node, not a giant glowing sphere.\n\nLEFT UPSTREAM NODES: three vertically aligned business cards:\n\"鼎芯电路\" / \"HDI PCB · 广东\" / \"公开成交样本 34%\";\n\"联科连接器\" / \"板端连接器 · 广东\" / \"公开成交样本 26%\";\n\"恒越电子\" / \"电子元件 · 广东\" / \"公开成交样本 18%\".\nEach has a tiny company monogram, pale teal category chip, source date tag, and a clean thin directional arrow flowing left to the central enterprise. Edge labels are readable \"PCB 供货\", \"连接器供货\", \"元件供货\"; first edge selected with slightly stronger teal. Only relationships with explicit sample evidence use solid arrows.\n\nRIGHT DOWNSTREAM NODES: three vertically aligned cards in muted blue:\n\"远景自动化\" / \"工业控制系统\" / \"公开供货关系\";\n\"瑞腾新能源\" / \"储能控制模块\" / \"公开供货关系\";\n\"星河智造\" / \"智能硬件\" / \"潜在关联 · 待核验\".\nEdges from center to the right, thin blue solid arrows for first two; a fine amber dashed arrow for the last. Labels \"控制板供货\", \"PCBA 配套\", \"行业关联\". Use small source icons and distinct status; never equate inferred relation with a confirmed supply contract. Bottom-left legend: teal solid line \"公开关系（示例）\", amber dashed line \"潜在关联\", tiny neutral note \"节点大小不代表营收\".\n\nRIGHT RAIL: top panel title \"关系详情\" with selected pair \"鼎芯电路 → 华辰电子科技\". A two-column fact list \"关系类型 PCB 供货\", \"品类 HDI PCB\", \"证据类型 合同公示\", \"样本日期 2026-09-16\", \"状态 原文匹配\". Compact quotation inset \"示例合同公示：鼎芯电路向华辰电子提供 HDI PCB。\" with small \"演示证据\" tag and action \"查看来源\".\nSecond panel \"AI 商机发现\" has a subtle teal icon and short reasoning \"连接器需求与您的产品匹配，可尝试第二供应商验证。\" and label \"AI 推断\". Three useful list rows \"远景自动化 · 工业连接器 · 匹配 87\", \"瑞腾新能源 · 电源模块 · 匹配 83\", \"星河智造 · 板端连接器 · 待核验\". Each includes a small source count chip, readable one-line fit reason and discreet add icon. Bottom section \"跟进建议\" with numbered concise actions \"核实真实采购联系人\", \"了解试样与认证流程\", \"比较交期和供货稳定性\". Bottom teal button \"生成客户拓展清单\".\n\nAll graph labels and arrows must be precise, balanced and legible. The interface should make upstream/downstream context and actionable opportunities immediately understandable while staying beautiful and calm. Keep all five images' typography, colors, navigation and Chinese domain wording consistent. All data and relationships are explicitly demonstrations.",
+    "size": "3840x2160",
+    "quality": "high",
+    "n": 1,
+    "output_format": "png",
+    "background": "auto"
+  },
+  "images": [
+    {
+      "source_size": "1672x941",
+      "source_format": "png",
+      "processed": false,
+      "file": "20261008_153427_0d48b3a9_1.png",
+      "size": "1672x941",
+      "format": "png"
+    }
+  ],
+  "warnings": [
+    "第 1 张实际尺寸 1672x941 与请求 3840x2160 不一致。"
+  ],
+  "usage": {
+    "input_tokens": 1310,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 1310
+    },
+    "output_tokens": 4632,
+    "output_tokens_details": {
+      "image_tokens": 4632,
+      "text_tokens": 0
+    },
+    "total_tokens": 5942
+  }
+}

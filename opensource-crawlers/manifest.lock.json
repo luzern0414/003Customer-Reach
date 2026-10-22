@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-09-30",
+  "repositories": [
+    {
+      "id": "scrapy",
+      "repository": "https://github.com/scrapy/scrapy.git",
+      "branch": "master",
+      "commit": "5d789b24f994bcdfca97c34d976c73739e064849",
+      "license_file": "LICENSE"
+    },
+    {
+      "id": "feapder",
+      "repository": "https://github.com/Boris-code/feapder.git",
+      "branch": "master",
+      "commit": "b5ed609d04350bd9089c161946069c6be75125fc",
+      "license_file": "LICENSE"
+    },
+    {
+      "id": "trafilatura",
+      "repository": "https://github.com/adbar/trafilatura.git",
+      "branch": "master",
+      "commit": "1e31e3e9eb2e4f6fbfd4bc04355bc74005a780e6",
+      "license_file": "LICENSE"
+    },
+    {
+      "id": "rapidfuzz",
+      "repository": "https://github.com/rapidfuzz/RapidFuzz.git",
+      "branch": "main",
+      "commit": "db6e504539a9c895180b266a06b36a32cb6029ee",
+      "license_file": "LICENSE"
+    }
+  ]
+}

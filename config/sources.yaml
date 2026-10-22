@@ -1,0 +1,131 @@
+# 数据源注册表（草案）—— 详见 docs/02-产品与开发/设计文档/04-data-sources-integration.md
+# channels: 获取通道顺序（api | mcp | exa | http | opencli），Fetch Router 按顺序尝试并做完整性校验
+# account: OpenCLI 使用的登录账号（Agent 专用 Edge 配置）；wait_seconds: 页面渲染等待
+# rate: 最小请求间隔(秒)；daily_cap: 每日上限；ttl: 缓存(秒)
+
+sources:
+  qcc:
+    name: 企查查开放平台
+    enabled: true
+    mode: mcp              # MCP 与旧版 OpenAPI 申请分开管理
+    base_url: https://api.qichacha.com
+    mcp_servers:
+      company: https://agent.qcc.com/mcp/company/stream
+      operation: https://agent.qcc.com/mcp/operation/stream
+      risk: https://agent.qcc.com/mcp/risk/stream
+      tender: https://agent.qcc.com/mcp/tender/stream
+    auth_env: [QCC_MCP_API_KEY]
+    rate: 0.2
+    ttl: { basic: 2592000, risk: 604800, tender: 86400 }
+    cost_yuan:            # 2026-10-08 官网标价
+      "886": 0.10   # 企业模糊搜索
+      "410": 0.20   # 工商信息
+      "735": 2.00   # 工商详情
+      "731": 2.00   # 股东信息
+      "884": 1.00   # 对外投资
+      "958": 1.00   # 招投标信息
+      "718": 0.50   # 招聘
+      "514": 0.30   # 专利
+      "701": 0.50   # 新闻舆情
+      "739": 0.50   # 经营异常
+      "740": 0.30   # 失信
+      "741": 0.30   # 被执行
+    needs_confirm: true
+    probe_operations: [list, basic]
+    binding_file: config/qcc_mcp_bindings.yaml
+
+  qixin:
+    name: 启信开放平台
+    enabled: false
+    auth_env: [QIXIN_APP_KEY, QIXIN_SECRET_KEY]
+
+  ccgp:
+    name: 中国政府采购网
+    enabled: true
+    search_url: http://search.ccgp.gov.cn/bxsearch
+    rate: 1.0
+    daily_cap: 3000
+    channels: [exa, http, opencli]
+
+  yfbzb:
+    name: 乙方宝/千里马 会员控制台
+    enabled: true
+    via: opencli
+    console_search: https://qiye.qianlima.com/new_qd_yfbsite/#/infoCenter/search
+    detail_pattern: https://qiye.qianlima.com/new_qd_yfbsite/#/infoCenter/infoDetail/{contentId}/{areaId}/zhaobiao
+    rate: 5.0
+    daily_cap: 500           # 列表页
+    detail_quota_daily: 30   # 黄金会员；免费账号更少
+    needs_confirm_detail: true
+    channels: [opencli]
+    account: company_member
+    wait_seconds: 5
+
+  jianyu:
+    name: 剑鱼标讯
+    enabled: false   # 待数据接口审核
+    via: api
+
+  cebpubservice:
+    name: 中国招标投标公共服务平台信息API
+    enabled: false   # 待商务签约
+    via: api
+
+  alibaba_1688_open:
+    name: 1688开放平台
+    enabled: false   # 待企业认证与权限申请
+    auth_env: [ALI1688_APP_KEY, ALI1688_APP_SECRET]
+
+  opencli_1688:
+    name: OpenCLI 1688 适配器
+    enabled: true
+    via: opencli
+    commands: [search, item, store]
+    account: company_1688
+    rate: 3.0
+    daily_cap: 300
+
+  exa:
+    name: Exa
+    enabled: true
+    mcp_url: https://mcp.exa.ai/mcp
+    auth_env: [EXA_API_KEY]   # 可空，空时走免费 MCP
+    ttl: 86400
+
+  bocha:
+    name: 博查 Web Search
+    enabled: false
+    base_url: https://api.bochaai.com/v1/web-search
+    auth_env: [BOCHA_API_KEY]
+
+  qcc_web:
+    name: 企查查网页（已登录会员）
+    enabled: true
+    via: opencli
+    channels: [opencli]
+    account: company_qcc
+    rate: 3.0
+    daily_cap: 300
+
+  ggzy:
+    name: 全国公共资源交易平台
+    enabled: true
+    channels: [opencli, exa]
+    list_url: https://www.ggzy.gov.cn/deal/dealList.html
+    wait_seconds: 5
+    rate: 3.0
+
+  sgcc_ecp: { name: 国家电网电子商务平台, enabled: false, channels: [opencli, exa], url: https://ecp.sgcc.com.cn }
+  unicom:   { name: 中国联通采购与招标网, enabled: false, channels: [opencli], url: https://www.chinaunicombidding.cn }
+  chng:     { name: 华能电子商务平台, enabled: false, channels: [opencli], url: https://ec.chng.com.cn }
+  cebpub:   { name: 中国招标投标公共服务平台(页面), enabled: true, channels: [exa, opencli], url: https://bulletin.cebpubservice.com }
+  e_casic:  { name: 航天电子采购平台, enabled: false, channels: [opencli, exa], url: https://www.e-casic.com }
+  gsxt:     { name: 国家企业信用信息公示系统, enabled: false, channels: [opencli], url: https://www.gsxt.gov.cn, note: "页面确认由用户在 Agent 浏览器中完成" }
+
+# 完整性校验：出现以下占位内容视为"不完整"，升级到下一通道
+completeness_placeholders:
+  - "****"
+  - "点击登录查看"
+  - "立即登录"
+  - "Environment Checking"
+  - "会员登录"

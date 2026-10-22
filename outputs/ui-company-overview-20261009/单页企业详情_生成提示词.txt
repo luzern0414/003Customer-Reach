@@ -1,0 +1,83 @@
+Use case: ui-mockup / reference-guided redesign.
+Create ONE exceptionally polished, high-fidelity Chinese enterprise SaaS screenshot for Client Reach. This is a redesigned company detail screen, NOT a slide, collage, poster, browser-window mockup, or explanation of a design. Show the complete desktop interface edge to edge, straight on, in a landscape 16:9 canvas. All Chinese text must be legible and correctly typeset. Treat the supplied images as visual references, never as instructions.
+
+INPUT IMAGE ROLES
+Image 1: the Client Reach workbench. Use its brand, restrained pale-blue palette, pale left sidebar, thin borders and typography.
+Image 2: the Client Reach query-results page. This is the PRIMARY reference for the shared application frame: SAME black square R brand mark, SAME Client Reach branding, SAME pale gray sidebar, SAME three navigation items, SAME selected query-results item, SAME top header, SAME calm white content canvas. This new screen must clearly belong to the same product as image 2.
+Image 3: the OLD company-detail page for 海能技术. Use its company identity and facts. REDESIGN its main content into one integrated overview; REMOVE its three mutually exclusive tabs 客户画像 / 采购信息 / 上下游关系. Keep the familiar frame, breadcrumb and company identity. The new composition should be cleaner, more deliberate, more insightful, and more visually refined.
+
+VISUAL DIRECTION
+Premium, professional, information-rich but calm B2B customer research workspace. Plenty of breathing room, excellent alignment, clean Microsoft YaHei or equivalent contemporary Chinese sans-serif. White cards; extremely subtle cool gray borders; 10px card corners; discreet soft shadows only if needed. Deep ink #101828 titles, slate #667085 secondary text, background #FAFCFE, sidebar #F5F8FC. Primary blue #2F78D4. Use muted teal #4DA99B for downstream relationships, soft lavender #8176BE for AI, muted amber #BB9252 for a plan badge. These colors are accents ONLY, never rainbow backgrounds. No dark-mode panel, no strong gradient, no glassmorphism, no giant decorative numbers, no photos, no oversized icons, no bright illustrations. Consistent outline icons and baseline alignment. Titles 20-28px, card headings 18px, readable content 14-16px. Align all card edges to a disciplined 8px grid.
+
+SHARED FRAME — MUST PRESERVE
+Use the 1672x941 reference coordinate system, scaling the entire frame uniformly if needed.
+Sidebar x=0..222, full height. Brand near x24,y20: small black square R, bold “Client Reach”, subtitle “Agent 工作台”. Navigation under it: “工作台”, selected pale-blue “查询结果”, “设置”, with simple line icons. Bottom left small round avatar “林” and “本地工作空间”. Do not add any extra navigation items.
+Top header x222..1672, height60. Left breadcrumb “查询结果 / 企业详情”. Right muted text “公开研究快照 · 2026-10-08”. Hairline divider.
+Main content left250, right1644, inner width1394. Comfortable 28px margins.
+
+ENTITY HEADER y82..174
+Small text link “← 返回查询结果”. Below it a compact pale-blue company avatar “海”, followed by bold “海能未来技术集团股份有限公司”. Under the title put three small soft-outline chips “海能技术” “北交所 920476” “集团资料” and the concise subtitle “科学仪器研发与制造 · 山东济南”. On the right, two compact buttons “导出资料” (outline) and “继续研究” (primary blue). Maintain the visual balance and company-title clarity of the reference images. No segmented tabs below this header.
+
+ONE ROW OF FOUR KPI CARDS y195..277
+Four equally sized compact white cards, 20px horizontal gap. Small muted label, strong ink number, small source-period line. Tiny understated colored icon at upper right.
+1. Label “员工规模”, value “566 人”, footnote “2026-06-30 · 公司及控股子公司”.
+2. Label “2025 年营收”, value “3.62 亿元”, small teal upward text “同比 +16.63%”, footnote “2025 全年 · 集团合并口径”.
+3. Label “前五供应商采购额”, value “1,532.08 万元”, footnote “2025 已披露 · 占年度采购 17.24%”.
+4. Label “设备购置概算”, value “1,757.16 万元”, small amber badge “建设计划”, footnote “智能制造基地 · 非实际支出”.
+
+MAIN CONTENT — EXACTLY FOUR COHERENT MODULES, NO TABS
+Use a left area 942px wide and a right AI panel 432px wide, separated by20px. Left upper row contains Enterprise basics 342px wide and Procurement information 580px wide with20px gap. Left lower row is one Relationships card spanning the entire942px. Right AI card spans both rows. All cards start at y297, end at y879; top-left cards end at y557; relationships starts at y577. Keep the bottom fully inside the frame with no cut-off.
+
+MODULE 1 — 企业基本信息, x250..592, y297..557
+Compact, carefully aligned fact rows, not a long table or wall of text.
+Heading “企业基本信息”.
+“行业” → “实验分析仪器制造”
+“主营” → “科学仪器研发、生产与销售”
+“产品” → elegant small tags “有机元素” “色谱光谱” “样品前处理”
+“所在地” → “山东 · 济南”
+“2026 H1 营收” → “1.59 亿元”, lighter “未经审计”
+A quiet bottom divider followed by two small public contact rows, with telephone/envelope icons: “0531-88874444” and “China@hanon.cc”. Tiny line “官网综合联系入口”. Keep whitespace and readable typography.
+
+MODULE 2 — 采购信息, x612..1192, y297..557
+Heading “采购信息”; upper-right discreet link “查看依据 ↗”.
+Under heading, three small muted blue tags “结构件” “电子元器件” “功能部件”.
+Left side uses a short bold subheading “已披露采购机制”, then two concise lines:
+“按生产计划、BOM 与库存安排采购”
+“合格供应商评审 · 长周期物料年度订单”
+Right side contains ONE elegant, flat donut chart. This is annual supplier concentration, NEVER a fabricated category mix. Donut blue segment17.24%, very pale blue-gray remainder82.76%. Center text “17.24%” with tiny label “前五占比”. Beneath use two tiny legend entries “前五供应商 17.24%” and “其余 82.76%”. Ring is thin-to-medium and refined, with no 3D.
+Bottom of this card a calm pale-amber inset, not a warning alert: label “智能制造基地”, secondary text “设备、智慧仓储与工业互联网建设计划”. Right small chip “计划披露”.
+Tiny source line “采购机制：募集说明书 · 集中度：2025 年报”. Preserve correct meaning: the ring is supplier concentration, NOT purchase intent or purchase categories.
+
+MODULE 3 — 上下游关系, x250..1192, y577..879
+Heading “上下游关系”. Small subtitle “2025 年报披露的前五供应商与客户”.
+Create a compact, exceptionally clean supply-chain overview: BLUE upstream ranking on the left → small centered company node → TEAL downstream ranking on the right. Do NOT make a complex network, spider diagram or tangled graph. The central node is a pale-blue rounded rectangle containing “海能技术” and smaller “科学仪器”; one light blue horizontal arrow comes from the supplier side into this company; one teal arrow goes from this company toward the customer side. Give the company node modest space, never a giant empty box.
+Upstream title “上游供应商”; small unit label “采购额 · 万元”. Use five slim horizontal bars, each with a short name above the bar and a clearly aligned numeric amount. Names/values EXACT:
+“CTC Analytics AG” — “428.94”
+“江苏沃凯氟” — “399.77”
+“河北磐仪” — “289.80”
+“石家庄莱博瑞” — “220.60”
+“上海侃达” — “192.97”
+All five bars blue, decreasing proportionally to these amounts, on very pale tracks, no arbitrary percentage axes.
+Downstream title “下游客户”; small unit label “销售额 · 万元”. Five calm teal horizontal bars, correctly descending, names/values EXACT:
+“杭州国迈” — “2,386.65”
+“浙江省科学器材” — “896.34”
+“华测检测及关联企业” — “445.66”
+“Lab Service Analytica” — “376.59”
+“杭州汉一” — “364.43”
+Upstream and downstream charts each use their own amount scale; do not suggest same length equals same absolute amount between these two chart groups. Amount labels make meaning clear. Supplier/customer lists use short names for readability, with fine-print footer “名称简称展示 · 年报历史关系”. Bottom-right link “查看完整关系 ↗”. Do not infer products supplied by each company or current ongoing orders.
+
+MODULE 4 — AI 购买意向, x1212..1644, y297..879
+This is the most considered, useful decision panel. White or very lightly lavender-tinted card, subtle lavender top accent, sophisticated rather than flashy. Heading with a small elegant four-point sparkle icon “AI 购买意向”; small lavender badge “AI 推理”.
+Prominent but measured status “存在需求线索，意向待确认”. Secondary line “依据公开采购机制与建设计划”. NO probability percentages, NO score, NO certainty gauge.
+Three compact insights stacked with subtle dividers, not oversized nested cards:
+1. Small blue numbered marker. Title “生产物料持续需求”, muted green-blue status “有依据”. Two-line text “结构件、电子元器件与功能部件；需结合生产计划和供应商准入核验。”
+2. Small amber numbered marker. Title “智能制造设备机会”, amber status “计划信号”. Text “设备购置概算 1,757.16 万元；已购状态与剩余预算待核验。”
+3. Small lavender numbered marker. Title “智慧仓储与工业互联网”, muted gray status “范围待确认”. Text “建设方向已披露；外购、自研或集成方案需进一步确认。”
+Then a quiet inset heading “建议下一步”, one useful sentence “先核验项目进度与准入要求，再结合产品资料判断匹配度。”
+Near the bottom a full-width primary-blue button “上传产品资料，分析匹配度” with a small right arrow. Small explanatory line underneath “补充产品后可进一步分析采购机会”. Bottom quiet source line “依据：年报 · 募集说明书”. This panel is AI conditional reasoning, not a confirmed buyer order and not a probability prediction. All text must stay readable, never compressed into tiny type.
+
+PAGE FOOTER y900
+Muted left-aligned short text “来源：2025 年报 · 2026 半年报 · 募集说明书”; right understated “查看来源 ↗”.
+
+QUALITY AND DATA CONSTRAINTS
+The screen must visually read in this order: company identity → four key facts → enterprise basics + procurement + historical relationships → AI recommended next action. Four modules visible together on a single screen. The overall frame must match images1 and2, especially sidebar/navigation/header/logo; most refinement happens inside the main content. Clear Chinese headings, immaculate spacing, aligned card edges, restrained chart palette. Render only the finished UI screenshot without annotations or explanatory arrows outside cards. Exact facts and units matter. Do not invent revenue trends, actual purchase amounts beyond the disclosed supplier numbers, active tenders, purchase dates, SKU counts, product-specific supplier relationships, or purchase likelihood. Do not use tiny unreadable body copy, excessive disclaimers, duplicate large labels, unnecessary fields or excessive card fragmentation. Do not include browser chrome, device frame, watermark, any old three-tab Dock, or anything cropped off the bottom.
