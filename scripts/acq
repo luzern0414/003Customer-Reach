@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# acq 信息查询工具（Git Bash / Linux）。用法见 docs/11-acq-query-tool.md
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PYTHONPATH="$ROOT/src/tools${PYTHONPATH:+:$PYTHONPATH}"
-export PYTHONIOENCODING=utf-8
-exec python -X utf8 -m acq_query "$@"

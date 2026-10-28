@@ -1,21 +1,19 @@
 {
-  "name": "client-reach-web",
-  "version": "0.1.0",
+  "name": "dealradar-web",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
-    "@element-plus/icons-vue": "^2.3.0",
     "element-plus": "^2.11.0",
     "markdown-it": "^15.0.2",
     "markdown-it-cjk-friendly": "^3.0.0",
     "markstream-vue": "2.0.14",
     "vue": "^3.5.0",
-    "vue-element-plus-x": "^2.0.3",
     "vue-router": "^4.5.0"
   },
   "devDependencies": {

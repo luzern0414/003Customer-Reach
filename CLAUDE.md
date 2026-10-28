@@ -1,78 +1,60 @@
-# CLAUDE.md — AI 获客系统（003Customer-Acq）
+# CLAUDE.md — DealRadar AI 智能获客系统
 
-> 给所有在本仓库工作的 Agent（Claude Code / Codex / Cursor 等）的项目说明。`AGENTS.md` 与本文件内容一致。
+> 给在本仓库工作的 Agent（Claude Code / Codex / Cursor 等）的项目说明。`AGENTS.md` 与本文件内容一致。
 
 ## 项目在做什么
 
-一个 **B2B AI 获客系统**。用户通过对话提出需求，Agent 自动调用工具，从以下数据源查询目标企业的信息：
+B2B 获客系统。销售在工作台用一句话描述产品或输入企业名，系统用 **LuzCrawl** 在招投标与企业信息网站上检索、阅读原文，由模型抽取结构化信息，**逐字核验原文**后入库，输出：
 
-- 招投标与政府采购：乙方宝（会员控制台 + 公开搜索）、千里马、中国采购与招标网、剑鱼标讯、必联网、中国政府采购网、全国公共资源交易平台、中国国际招标网（经 Exa）、Exa 全网检索
-- 企业工商：必联网企业库 + Exa 检索工商公开页（爱企查、企查查等摘要）；后续接入企查查 API
-- 货源：1688
+- 找买家：正在或近期采购某类产品的单位 → 线索
+- 查企业：工商信息、采购记录、中标记录，以及由公告推导出的客户、供应商、竞争对手
 
-输出内容包括：
-
-- **采购信息**
-- **客户画像**
-- **上下游关系**：供应商、客户、竞争对手
-
-当前阶段：
-
-- 设计文档已完成（`docs/`）。
-- 已实现第一个可用工具：**`acq` 定制信息查询工具**。它基于 OpenCLI + Edge + Exa，按企业名采集 10 个数据源的招投标信息和企业工商信息，并生成报告。对应的项目 skill 为 `.claude/skills/company-intel`。
-- 主系统（FastAPI + LangGraph + Next.js）**尚未开始编码**，开发计划见 `docs/02-产品与开发/开发记录/09-dev-plan.md`。
-
-## 关键入口
-
-| 想做什么 | 看哪里 / 用什么 |
-|---|---|
-| 了解需求与架构 | `README.md` → `docs/01-商务与需求/客户资料/01-PRD.md`、`docs/02-产品与开发/设计文档/02-architecture.md`、`docs/02-产品与开发/设计文档/03-agent-and-tools.md` |
-| **按企业全量采集采购和企业信息**（最常用） | skill `company-intel`，即 `scripts/acq company "企业全称"`，详见 `docs/02-产品与开发/设计文档/11-acq-query-tool.md` |
-| 检查浏览器、插件和登录状态 | `scripts/acq doctor` |
-| 登录站点（乙方宝等） | `scripts/acq login yfbzb`：自动在 Agent 专用 Edge 打开登录页，等待用户完成登录 |
-| 直接调用单个站点命令 | `opencli yfbzb search/public/detail/whoami/login`、`qianlima search`、`chinabidding search`、`jianyu list`、`ebnew search/company`、`ccgp search`、`ggzy search`（加 `-f json`） |
-| 修改或新增站点适配器 | `src/opencli-plugin/`（OpenCLI 插件 `acq`），规范见 `docs/11` §5 |
-| 数据源接入策略 | `docs/02-产品与开发/设计文档/04-data-sources-integration.md`、`config/sources.yaml` |
-
-## 目录约定
+## 架构
 
 ```
-config/                 配置：acq_tool.toml（查询工具）、sources.yaml、models.yaml、settings.example.yaml
-data/browser-profile/   Agent 专用 Edge 配置（含登录态 cookie，不提交，不要删除）
-data/processed/companies/<企业名>/   查询报告（latest.md + 时间戳 .json/.md）
-data/raw/               原始快照（acq_query/<日期>/、samples/ 实测样例）
-docs/                   设计文档（01–11）、research/ 调研、adr/ 决策
-src/opencli-plugin/     OpenCLI 插件 acq：yfbzb-*.js、qianlima/chinabidding/jianyu-list/ebnew/ccgp/ggzy-*.js、lib/
-src/tools/acq_query/    Python 编排工具（只用标准库）：cli / edge / opencli / exa / sources / report
-scripts/acq(.cmd/.ps1)  acq 启动脚本
+web/ (Vue 3 + Element Plus)  →  backend/app (FastAPI，单进程)
+                                   ├─ research/pipeline.py  研究管线（阶段可恢复）
+                                   ├─ crawl.py              LuzCrawl CLI 适配层（唯一采集通道）
+                                   ├─ sites.py              数据来源注册表（检索方式、详情链接规则）
+                                   ├─ llm.py                模型网关（JSON Schema 结构化输出、流式）
+                                   ├─ research/store.py     只保存通过原文核验的字段
+                                   ├─ services.py           API 查询；上下游由公告参与方推导
+                                   └─ db.py                 SQLite 数据模型
 ```
 
-## 工作规则（Agent 必读）
+管线阶段：`understand → identify(查企业) → search → screen → read → enrich(找买家，补充采购方工商信息) → profile(查企业) → answer`。进度写入 `job.plan`，暂停、重启、用户登录后从中断处继续。需要登录、验证码或选择企业时任务进入 `awaiting_user`，前端显示交接卡片。
 
-1. **浏览器使用 Edge，不使用 Chrome**。
-   - Agent 专用 Edge 配置目录为 `data/browser-profile/edge-agent`，OpenCLI 扩展位于 `C:\Users\Chilth\.opencli\browser-extension`。
-   - `scripts/acq` 会自动启动这个 Edge，并保证扩展已连接。不要用个人浏览器配置做自动化。
-2. **需要登录或输入验证码时，让用户来做**。
-   - 运行 `scripts/acq login <site>`，或在 `company` 流程中自动提示。工具会在 Edge 前台打开登录页并轮询，用户完成后自动继续。
-   - 全国公共资源交易平台弹出验证码时，ggzy 命令会等待用户在 Edge 中输入。
-   - 不要尝试自己填写账号密码，也不要自动识别验证码。
-3. **内容获取走多通道**：API/MCP → Exa → OpenCLI 真实浏览器（已登录会员）。
-   - 读到占位内容时升级到下一个通道，例如 `****`、`点击登录查看`、登录页。
-   - 会员详情（联系人、电话）会消耗乙方宝每日查看额度，**调用 `--details` 前需征得用户同意**。
-4. **修改 `src/opencli-plugin/*.js` 后**：
-   - 先运行 `node --check` 检查语法；
-   - 再用 `opencli yfbzb search "航天广通" --limit 3 -f json` 等命令实测；
-   - 插件通过 `file://` 链接安装，改动即时生效。新增命令文件时，需重启 daemon：`opencli daemon restart`。
-5. **站点接口知识**（已实测的 endpoint、参数、字段含义）写在 `docs/02-产品与开发/设计文档/11-acq-query-tool.md` §4。接口变化时同步更新该文档。
-6. 不提交 `data/browser-profile/`、`.env`、`config/settings.yaml`。
-7. 文档用中文；代码注释风格与周围代码保持一致。
+## 工作规则
 
-## 环境
+1. **采集只走 LuzCrawl**（`D:\Codes\Luz-Crawl`，CLI 子进程）。不要再引入 Exa、OpenCLI 插件、Playwright 或 HTTP 直读。默认使用已连接的 Edge（`doctor` 返回的 `context_id`），多个无头进程会争用同一资料目录而失败。
+2. **登录、验证码由用户处理**，系统不填写账号密码、不识别验证码；限流（rate_limited）不重试、不换入口。
+3. **事实必须可追溯**：模型输出的每个字段带 quote，`research/verify.py` 核验 quote 出现在来源正文中、值出现在 quote 中，未通过一律不保存。未披露的金额、联系人保持为空。
+4. **数据源**：内置站点在 `sites.py`（文件头注释记录实测结论与日期）；用户在“数据源”页面新增的站点存于 `custom_sites` 表，`all_sites()` 合并两者，管线只通过它取站点。新增内置站点前先用 LuzCrawl 实测列表页与详情页正文（是否有详情链接、正文是否完整、是否打码），或用 `POST /api/sources/test` 验证。
+5. 模型服务只支持 `json_schema` / `json_mode` 结构化输出（强制 tool_choice 会被拒绝）。
+6. 不提交 `config/apikey.txt`、`data/`。文档用中文；代码注释风格与周围代码一致。
 
-- Windows 11，Git Bash 与 PowerShell 均可用。
-- Node 24、Python 3.14（`acq` 只用标准库，无需安装依赖）、uv、pnpm。
-- 已全局安装的工具：
-  - OpenCLI 1.8.8：`npm i -g @jackwener/opencli`
-  - Agent Reach 1.5.0
-  - mcporter：已配置 Exa MCP
-- 详见 `docs/02-产品与开发/设计文档/10-env-setup.md`。
+## 常用命令
+
+```powershell
+# 后端（Python 3.12，依赖见 backend/requirements.txt）
+cd backend; .venv\Scripts\python.exe -m pytest tests -q
+.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+# 前端
+cd web; npm run dev        # /api 代理到 8000
+npm run build
+# 一键启动 / 停止（生产方式）
+powershell -File start.ps1 ; powershell -File stop.ps1
+# 采集工具状态
+node D:\Codes\Luz-Crawl\scripts\luz-crawl.mjs doctor
+```
+
+## 目录
+
+```
+backend/app/        后端源码；backend/tests/ 测试（fixtures 为真实采集正文）
+web/                前端
+config/apikey.txt   模型服务地址与 Key（不提交）
+data/app/           dealradar.db、上传文件、日志（不提交）
+data/crawl/         LuzCrawl 任务目录与原始证据（不提交）
+docs/               商务需求、设计文档
+```

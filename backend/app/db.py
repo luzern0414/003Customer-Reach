@@ -1,32 +1,18 @@
-"""持久化会话、任务、线索和证据；网络请求不占用数据库事务。"""
-import os
+"""SQLite 数据模型。上下游关系不单独存表，由公告参与方（notice_parties）推导。"""
 import uuid
-from datetime import datetime, timedelta, timezone
-from sqlalchemy import Column, String, Text, Integer, Boolean, JSON, Float, create_engine, event, inspect, text
-from sqlalchemy.orm import declarative_base, sessionmaker
-from .config import DATA
+from datetime import datetime, timezone
 
+from sqlalchemy import (JSON, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event,
+                        select)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-def now() -> str:
-    """返回上海时区当前时间，统一 yyyy-MM-dd HH:mm:ss，无输入与副作用。"""
-    return datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+from .config import DATABASE_URL, DEFAULT_SETTINGS
 
-
-def identifier() -> str:
-    """生成非空UUID标识，无输入，不包含任何用户信息。"""
-    return uuid.uuid4().hex
-
-
-Base = declarative_base()
-engine = create_engine(os.getenv('CLIENTREACH_DATABASE_URL', f'sqlite:///{DATA / "clientreach.db"}'),
-                       connect_args={'check_same_thread': False, 'timeout': 20})
+engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False, 'timeout': 30})
 
 
 @event.listens_for(engine, 'connect')
-def sqlite_pragmas(connection, _):
-    """配置本地SQLite并发；connection为非空DBAPI连接，第二参数由SQLAlchemy提供，不返回值。"""
-    from .contact_view import contact_available
-    connection.create_function('contact_available',1,contact_available,deterministic=True)
+def _pragmas(connection, _):
     cursor = connection.cursor()
     cursor.execute('PRAGMA journal_mode=WAL')
     cursor.execute('PRAGMA foreign_keys=ON')
@@ -36,232 +22,280 @@ def sqlite_pragmas(connection, _):
 Session = sessionmaker(engine, expire_on_commit=False)
 
 
-class Conversation(Base):
-    """一次获客对话及已提取的公司产品画像。"""
-    __tablename__ = 'conversations'
-    id = Column(String, primary_key=True, default=identifier)
-    title = Column(String, default='新的获客对话')
-    profile = Column(JSON, default=dict)
-    created_at = Column(String, default=now)
-    updated_at = Column(String, default=now)
+def new_id() -> str:
+    return uuid.uuid4().hex
 
 
-class Message(Base):
-    """用户或Agent消息；附件仅存文件ID，不在日志记录正文。"""
-    __tablename__ = 'messages'
-    id = Column(Integer, primary_key=True)
-    conversation_id = Column(String, index=True)
-    role = Column(String)
-    content = Column(Text)
-    attachment_ids = Column(JSON, default=list)
-    created_at = Column(String, default=now)
+def now() -> str:
+    """UTC ISO 时间字符串，精确到秒。"""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-class Attachment(Base):
-    """上传产品资料的原始文件及解析内容，保留提取状态。"""
-    __tablename__ = 'attachments'
-    id = Column(String, primary_key=True, default=identifier)
-    filename = Column(String)
-    stored_path = Column(String)
-    size = Column(Integer)
-    text = Column(Text)
-    truncated = Column(Boolean, default=False)
-    parse_info = Column(JSON, default=dict)
-    created_at = Column(String, default=now)
-
-
-class Job(Base):
-    """数据库任务队列；独立worker领取，暂停与服务中断可恢复。"""
-    __tablename__ = 'jobs'
-    id = Column(String, primary_key=True, default=identifier)
-    conversation_id = Column(String, index=True)
-    client_token = Column(String, unique=True)
-    prompt = Column(Text)
-    attachment_ids = Column(JSON, default=list)
-    status = Column(String, default='queued', index=True)
-    stage = Column(String, default='等待执行')
-    progress = Column(Integer, default=0)
-    cancel_requested = Column(Boolean, default=False)
-    lead_ids = Column(JSON, default=list)
-    error = Column(Text, default='')
-    created_at = Column(String, default=now)
-    updated_at = Column(String, default=now)
-    graph_version = Column(String, default='v2')
-    started_at = Column(String, nullable=True)
-    finished_at = Column(String, nullable=True)
-    elapsed_ms = Column(Integer, default=0)
-    clock_at = Column(Float, nullable=True)
-    reply_message_id = Column(Integer, nullable=True)
-    generation_id = Column(String, default='')
-    metrics = Column(JSON, default=dict)
-    query_mode = Column(String, default='auto', server_default='auto')
-    company_ids = Column(JSON, default=list, server_default='[]')
-
-
-class JobEvent(Base):
-    """可重放的任务进度事件，供SSE和调试查看，不保存敏感原文。"""
-    __tablename__ = 'job_events'
-    id = Column(Integer, primary_key=True)
-    job_id = Column(String, index=True)
-    stage = Column(String)
-    message = Column(Text)
-    level = Column(String, default='info')
-    created_at = Column(String, default=now)
-    event_type = Column(String, default='stage')
-    payload = Column(JSON, default=dict)
-
-
-class Evidence(Base):
-    """真实工具返回的来源正文；Agent只能引用这些来源记录。"""
-    __tablename__ = 'evidence'
-    id = Column(String, primary_key=True, default=identifier)
-    job_id = Column(String, index=True)
-    url = Column(Text)
-    title = Column(Text)
-    body = Column(Text)
-    kind = Column(String)
-    captured_at = Column(String, default=now)
-    channel = Column(String, default='legacy')
-    content_hash = Column(String, default='')
-    published_at = Column(String, nullable=True)
-    expires_at = Column(String, nullable=True)
-    source_meta = Column(JSON, default=dict, server_default='{}')
-
-
-class Lead(Base):
-    """候选客户与CRM状态；事实和AI匹配评估分开保存。"""
-    __tablename__ = 'leads'
-    id = Column(String, primary_key=True, default=identifier)
-    dedupe_key = Column(String, unique=True)
-    display_name = Column(String, index=True)
-    legal_name = Column(String, nullable=True)
-    city = Column(String, default='')
-    industry = Column(String, default='')
-    status = Column(String, default='review', index=True)
-    owner = Column(String, default='')
-    next_followup = Column(String, default='')
-    score = Column(Integer, default=0)
-    match_reason = Column(Text, default='')
-    matched_products = Column(JSON, default=list)
-    facts = Column(JSON, default=dict)
-    evidence = Column(JSON, default=list)
-    manual_fields = Column(JSON, default=list)
-    tags = Column(JSON, default=list)
-    archived = Column(Boolean, default=False)
-    created_at = Column(String, default=now)
-    updated_at = Column(String, default=now)
-    buyer_role = Column(String, default='unknown')
-    qualification = Column(JSON, default=dict)
-    company_id = Column(String, nullable=True, index=True)
-
-
-class Memory(Base):
-    """持久LangGraph Store记录；命名空间隔离偏好、画像及检索绩效，失效不物理删除。"""
-    __tablename__ = 'memories'
-    id = Column(String, primary_key=True, default=identifier)
-    namespace = Column(String, index=True)
-    key = Column(String)
-    unique_key = Column(String, unique=True)
-    value = Column(JSON)
-    status = Column(String, default='active')
-    created_at = Column(String, default=now)
-    updated_at = Column(String, default=now)
-
-
-class Knowledge(Base):
-    """来源可追溯的产品文档块和客户事实；不把模型总结直接当公开事实。"""
-    __tablename__ = 'knowledge'
-    id = Column(String, primary_key=True, default=identifier)
-    unique_key = Column(String, unique=True)
-    workspace_id = Column(String, default='local', index=True)
-    title = Column(String)
-    body = Column(Text)
-    kind = Column(String)
-    source_id = Column(String, nullable=True)
-    source_url = Column(Text, default='')
-    entity_id = Column(String, nullable=True)
-    status = Column(String, default='active')
-    expires_at = Column(String, nullable=True)
-    created_at = Column(String, default=now)
-    updated_at = Column(String, default=now)
-
-
-class Feedback(Base):
-    """销售纠错或相关性反馈，独立于原始证据；用于角色、知识和渠道优先级。"""
-    __tablename__ = 'feedback'
-    id = Column(String, primary_key=True, default=identifier)
-    lead_id = Column(String, index=True)
-    kind = Column(String)
-    content = Column(Text, default='')
-    created_at = Column(String, default=now)
-
-
-class ToolCall(Base):
-    """稳定操作ID账本：持久工具结果、耗时及失败码，图恢复复用成功操作。"""
-    __tablename__ = 'tool_calls'
-    id = Column(String, primary_key=True, default=identifier)
-    job_id = Column(String, index=True)
-    operation_id = Column(String, unique=True)
-    tool = Column(String)
-    channel = Column(String, default='')
-    arguments = Column(JSON)
-    result = Column(JSON, nullable=True)
-    status = Column(String, default='running')
-    elapsed_ms = Column(Integer, default=0)
-    attempts = Column(Integer, default=1)
-    last_attempt_epoch = Column(Float, default=0)
-    retry_after_epoch = Column(Float, default=0)
-    created_at = Column(String, default=now)
-    updated_at = Column(String, default=now)
-
-
-class Followup(Base):
-    """销售主动添加的跟进记录，与网页采购事实分离。"""
-    __tablename__ = 'followups'
-    id = Column(Integer, primary_key=True)
-    lead_id = Column(String, index=True)
-    content = Column(Text)
-    kind = Column(String, default='note')
-    created_at = Column(String, default=now)
+class Base(DeclarativeBase):
+    type_annotation_map = {dict: JSON, list: JSON}
 
 
 class Setting(Base):
-    """非敏感应用设置；API密钥不写此表。"""
     __tablename__ = 'settings'
-    key = Column(String, primary_key=True)
-    value = Column(JSON)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON)
 
 
-def serialize(row) -> dict:
-    """将非空ORM行投影为字典；仅用于已确定允许返回的模型，空值调用方处理。"""
-    return {c.name: getattr(row, c.name) for c in row.__table__.columns}
+class Conversation(Base):
+    __tablename__ = 'conversations'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    title: Mapped[str] = mapped_column(String(200), default='新研究')
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    updated_at: Mapped[str] = mapped_column(String(32), default=now)
 
 
-def initialize() -> None:
-    """创建本地初代数据表；不会删除既有表或迁移客户历史数据。"""
-    # 旧表先沿用历史增量修复；企业模块由版本化迁移负责，避免create_all掩盖升级缺口。
-    company_tables = {'companies', 'company_facts', 'procurement_projects', 'procurement_notices', 'company_relations', 'research_companies','research_datasets', 'source_documents', 'source_fragments', 'entry_source_bindings', 'tender_records', 'tender_relations'}
-    legacy_tables = [table for name, table in Base.metadata.tables.items() if name not in company_tables]
-    Base.metadata.create_all(engine, tables=legacy_tables)
-    # 非破坏性补列，旧客户和日志原样保留；数据库默认值使已有行可直接序列化。
-    additions = {
-        'tool_calls': {'attempts':'INTEGER DEFAULT 1', 'last_attempt_epoch':'FLOAT DEFAULT 0', 'retry_after_epoch':'FLOAT DEFAULT 0'},
-        'attachments': {'parse_info': "JSON DEFAULT '{}'"},
-        'jobs': {'graph_version':"VARCHAR DEFAULT 'v1'", 'started_at':'VARCHAR', 'finished_at':'VARCHAR',
-                 'elapsed_ms':'INTEGER DEFAULT 0', 'clock_at':'FLOAT', 'reply_message_id':'INTEGER',
-                 'generation_id':"VARCHAR DEFAULT ''", 'metrics':"JSON DEFAULT '{}'"},
-        'job_events': {'event_type':"VARCHAR DEFAULT 'stage'", 'payload':"JSON DEFAULT '{}'"},
-        'evidence': {'channel':"VARCHAR DEFAULT 'legacy'", 'content_hash':"VARCHAR DEFAULT ''", 'published_at':'VARCHAR','expires_at':'VARCHAR'},
-        'leads': {'buyer_role':"VARCHAR DEFAULT 'unknown'", 'qualification':"JSON DEFAULT '{}'"},
-    }
-    with engine.begin() as connection:
-        for table, columns in additions.items():
-            existing = {x['name'] for x in inspect(connection).get_columns(table)}
-            for name, definition in columns.items():
-                if name not in existing:
-                    connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {definition}'))
-        connection.execute(text('CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(item_id UNINDEXED, workspace_id UNINDEXED, title, body)'))
-        # 老版资料分没有角色资格，先降到待核等级；不替历史记录推断采购方身份。
-        connection.execute(text("UPDATE leads SET score=MIN(score,35), qualification='{}' WHERE buyer_role='unknown' AND (qualification IS NULL OR qualification='{}')"))
-    from .migrations import upgrade_database
-    upgrade_database(engine)
+class Message(Base):
+    __tablename__ = 'messages'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey('conversations.id', ondelete='CASCADE'), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text, default='')
+    attachment_ids: Mapped[list] = mapped_column(JSON, default=list)
+    job_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Attachment(Base):
+    __tablename__ = 'attachments'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    filename: Mapped[str] = mapped_column(String(255))
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    path: Mapped[str] = mapped_column(String(500))
+    text: Mapped[str] = mapped_column(Text, default='')
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Job(Base):
+    """一次研究任务。status: queued/running/awaiting_user/paused/completed/partial/failed。"""
+    __tablename__ = 'jobs'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey('conversations.id', ondelete='CASCADE'), index=True)
+    message_id: Mapped[str] = mapped_column(String(32))
+    mode: Mapped[str] = mapped_column(String(24), default='')
+    status: Mapped[str] = mapped_column(String(24), default='queued', index=True)
+    stage: Mapped[str] = mapped_column(String(32), default='queued')
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    handover: Mapped[dict] = mapped_column(JSON, default=dict)
+    crawl_folder: Mapped[str] = mapped_column(String(500), default='')
+    reply_message_id: Mapped[str | None] = mapped_column(String(32))
+    error: Mapped[str] = mapped_column(Text, default='')
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    started_at: Mapped[str | None] = mapped_column(String(32))
+    finished_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class JobEvent(Base):
+    __tablename__ = 'job_events'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey('jobs.id', ondelete='CASCADE'), index=True)
+    type: Mapped[str] = mapped_column(String(48))
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Source(Base):
+    """LuzCrawl 实际读取到的页面；text 为页面可见正文，folder 指向证据目录。"""
+    __tablename__ = 'sources'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    url: Mapped[str] = mapped_column(String(1000), unique=True)
+    title: Mapped[str] = mapped_column(String(500), default='')
+    site: Mapped[str] = mapped_column(String(64), default='', index=True)
+    kind: Mapped[str] = mapped_column(String(24), default='page')
+    status: Mapped[str] = mapped_column(String(24), default='captured')
+    text: Mapped[str] = mapped_column(Text, default='')
+    folder: Mapped[str] = mapped_column(String(500), default='')
+    job_id: Mapped[str | None] = mapped_column(String(32))
+    fetched_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Company(Base):
+    __tablename__ = 'companies'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    short_name: Mapped[str] = mapped_column(String(100), default='')
+    credit_code: Mapped[str] = mapped_column(String(32), default='')
+    legal_person: Mapped[str] = mapped_column(String(64), default='')
+    registered_capital: Mapped[str] = mapped_column(String(64), default='')
+    founded_on: Mapped[str] = mapped_column(String(32), default='')
+    business_status: Mapped[str] = mapped_column(String(32), default='')
+    industry: Mapped[str] = mapped_column(String(100), default='')
+    region: Mapped[str] = mapped_column(String(100), default='')
+    address: Mapped[str] = mapped_column(String(300), default='')
+    website: Mapped[str] = mapped_column(String(300), default='')
+    phone: Mapped[str] = mapped_column(String(100), default='')
+    email: Mapped[str] = mapped_column(String(100), default='')
+    scope: Mapped[str] = mapped_column(Text, default='')
+    summary: Mapped[str] = mapped_column(Text, default='')
+    researched_at: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    updated_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Fact(Base):
+    """企业字段的原文依据：每个非空企业字段至少对应一条 quote 已在来源正文中核验的事实。"""
+    __tablename__ = 'facts'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id', ondelete='CASCADE'), index=True)
+    field: Mapped[str] = mapped_column(String(48))
+    value: Mapped[str] = mapped_column(Text)
+    quote: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[str] = mapped_column(ForeignKey('sources.id'))
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Notice(Base):
+    """招投标/采购公告。kind: intent/tender/change/candidate/award/contract/other。金额单位为元。"""
+    __tablename__ = 'notices'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    source_id: Mapped[str] = mapped_column(ForeignKey('sources.id'))
+    url: Mapped[str] = mapped_column(String(1000), unique=True)
+    title: Mapped[str] = mapped_column(String(500))
+    kind: Mapped[str] = mapped_column(String(16), default='other', index=True)
+    project_code: Mapped[str] = mapped_column(String(100), default='')
+    region: Mapped[str] = mapped_column(String(100), default='')
+    published_on: Mapped[str] = mapped_column(String(16), default='', index=True)
+    deadline: Mapped[str] = mapped_column(String(32), default='')
+    budget: Mapped[float | None] = mapped_column(Float)
+    amount: Mapped[float | None] = mapped_column(Float)
+    items: Mapped[str] = mapped_column(Text, default='')
+    quotes: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class NoticeParty(Base):
+    """公告参与方。role: buyer/agent/winner/candidate/bidder。"""
+    __tablename__ = 'notice_parties'
+    __table_args__ = (UniqueConstraint('notice_id', 'company_id', 'role'),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    notice_id: Mapped[str] = mapped_column(ForeignKey('notices.id', ondelete='CASCADE'), index=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id', ondelete='CASCADE'), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    amount: Mapped[float | None] = mapped_column(Float)
+    quote: Mapped[str] = mapped_column(Text, default='')
+
+
+class JobCompany(Base):
+    """任务产出的企业，role: target（查企业目标）/buyer（找买家结果）/related。"""
+    __tablename__ = 'job_companies'
+    job_id: Mapped[str] = mapped_column(ForeignKey('jobs.id', ondelete='CASCADE'), primary_key=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id', ondelete='CASCADE'), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), default='related')
+
+
+class Lead(Base):
+    """销售线索。status: new/verifying/contacted/following/won/invalid。每家企业至多一条。"""
+    __tablename__ = 'leads'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    company_id: Mapped[str] = mapped_column(ForeignKey('companies.id', ondelete='CASCADE'), unique=True)
+    notice_id: Mapped[str | None] = mapped_column(ForeignKey('notices.id', ondelete='SET NULL'))
+    conversation_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(16), default='new', index=True)
+    owner: Mapped[str] = mapped_column(String(64), default='')
+    next_followup_at: Mapped[str] = mapped_column(String(32), default='')
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    match_reason: Mapped[str] = mapped_column(Text, default='')
+    analysis: Mapped[dict] = mapped_column(JSON, default=dict)
+    archived: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    updated_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Followup(Base):
+    __tablename__ = 'followups'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    lead_id: Mapped[str] = mapped_column(ForeignKey('leads.id', ondelete='CASCADE'), index=True)
+    kind: Mapped[str] = mapped_column(String(16), default='note')
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Feedback(Base):
+    """纠错反馈。kind: relevant/not_buyer/wrong/stale。"""
+    __tablename__ = 'feedback'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    lead_id: Mapped[str] = mapped_column(ForeignKey('leads.id', ondelete='CASCADE'), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text, default='')
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class Knowledge(Base):
+    """长期知识。kind: preference/exclusion/product/experience。"""
+    __tablename__ = 'knowledge'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(String(200), default='')
+    body: Mapped[str] = mapped_column(Text)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    updated_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class SiteStat(Base):
+    """来源经验：各站点的尝试、成功与被采用次数，用于排序与冷却。"""
+    __tablename__ = 'site_stats'
+    site: Mapped[str] = mapped_column(String(64), primary_key=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    successes: Mapped[int] = mapped_column(Integer, default=0)
+    adopted: Mapped[int] = mapped_column(Integer, default=0)
+    last_status: Mapped[str] = mapped_column(String(24), default='')
+    last_at: Mapped[str] = mapped_column(String(32), default='')
+    cooldown_until: Mapped[str] = mapped_column(String(32), default='')
+
+
+class CustomSite(Base):
+    """用户新增的数据源。mode: template（自拼检索地址）/ site_search（LuzCrawl 自动定位站内搜索框）。"""
+    __tablename__ = 'custom_sites'
+    id: Mapped[str] = mapped_column(String(48), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(16), default='procurement')
+    mode: Mapped[str] = mapped_column(String(16), default='template')
+    template: Mapped[str] = mapped_column(String(1000), default='')
+    domain: Mapped[str] = mapped_column(String(200), default='')
+    detail: Mapped[str] = mapped_column(String(300), default='')
+    login: Mapped[int] = mapped_column(Integer, default=0)
+    by_company: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str] = mapped_column(String(200), default='')
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    updated_at: Mapped[str] = mapped_column(String(32), default=now)
+
+
+class DiscoveredSite(Base):
+    """全网检索结果中出现、尚未登记为数据源的网站：命中次数与被采用（读出公告）次数。"""
+    __tablename__ = 'discovered_sites'
+    domain: Mapped[str] = mapped_column(String(200), primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), default='')
+    sample_url: Mapped[str] = mapped_column(String(1000), default='')
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    adopted: Mapped[int] = mapped_column(Integer, default=0)
+    dismissed: Mapped[int] = mapped_column(Integer, default=0)
+    first_seen: Mapped[str] = mapped_column(String(32), default=now)
+    last_seen: Mapped[str] = mapped_column(String(32), default=now)
+
+
+def init_db() -> None:
+    Base.metadata.create_all(engine)
+
+
+def get_settings() -> dict:
+    with Session() as db:
+        stored = {row.key: row.value.get('v') for row in db.scalars(select(Setting))}
+    return {**DEFAULT_SETTINGS, **{k: v for k, v in stored.items() if k in DEFAULT_SETTINGS}}
+
+
+def save_settings(values: dict) -> dict:
+    with Session.begin() as db:
+        for key, value in values.items():
+            if key in DEFAULT_SETTINGS:
+                db.merge(Setting(key=key, value={'v': value}))
+    return get_settings()

@@ -1,68 +1,17 @@
-# 真实业务数据默认不进入版本库
-data/raw/**
-data/staging/**
-data/normalized/**
-data/evidence/**
-data/review/**
-data/restricted/**
-data/quarantine/**
-data/exports/**
-!data/raw/.gitkeep
-!data/staging/.gitkeep
-!data/normalized/.gitkeep
-!data/evidence/.gitkeep
-!data/review/.gitkeep
-!data/review/pending/.gitkeep
-!data/review/approved/.gitkeep
-!data/review/rejected/.gitkeep
-!data/review/corrections/.gitkeep
-!data/restricted/.gitkeep
-!data/quarantine/.gitkeep
-!data/exports/.gitkeep
+# 运行数据：业务库、上传文件、日志、LuzCrawl 证据目录（含真实企业与联系人信息）
+data/
 
-# 运行日志可能含有来源 URL、请求参数或个人信息
-log/**
-!log/.gitkeep
-
-# 第三方仓库单独管理，不与本项目源码混合
-opensource-crawlers/repos/**
-!opensource-crawlers/repos/.gitkeep
-
-# 本地凭据和运行环境文件
+# 本地凭据
+config/apikey.txt
 .env
 .env.*
-config/apikey.txt
-data/app/
-web/node_modules/
-web/dist/
-backend/.venv/
-**/__pycache__/
-!.env.example
 *.pem
 *.key
 
-# 隔离运行环境、工具缓存和临时证据
-tools/mcp/.venv/
-tools/mcp/playwright/node_modules/
-scripts/research/node_modules/
-.codex-tmp/
-.playwright-cli/
-
-# 配置/密钥进入加密备份；恢复钥只放本地 config，不能与密文一起上传。
-/config/backup-keys/
-/config/secrets/
+# 依赖与构建产物
 **/node_modules/
 **/.venv/
-/.codex-log/
-/.pytest_cache/
+web/dist/
+**/__pycache__/
 *.py[cod]
-
-# acq 查询工具：Agent 专用 Edge 配置含登录 cookie，查询报告为真实业务数据
-data/browser-profile/
-data/processed/
-
-# 深度调研过程文件（结论已收录到 docs/02-产品与开发/）
-/research_notes/
-/reports/
-backups/
-data/ocr-models/
+.pytest_cache/

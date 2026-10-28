@@ -1,69 +1,181 @@
 <script setup lang="ts">
-import {ref,onMounted,onUnmounted,watch} from 'vue'
-import {useRoute} from 'vue-router'
-import {ElMessage,ElMessageBox} from 'element-plus'
-import {Plus,Download,Search,ArrowRight,Refresh,More} from '@element-plus/icons-vue'
-import {api,stages,factLabels,roles} from '../api'
-import FactValue from '../components/FactValue.vue'
-import ProcurementSignals from '../components/ProcurementSignals.vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { api, patch, query } from '../api'
+import type { LeadItem, LeadList, LeadStatus } from '../types'
+import { LEAD_STATUS, dateParts } from '../format'
+import Icon from '../components/Icon.vue'
 
-const rows=ref<any[]>([]),total=ref(0),stats=ref<Record<string,number>>({}),page=ref(1),q=ref(''),status=ref(''),city=ref(''),role=ref('')
-const route=useRoute()
-const loading=ref(false),selection=ref<any[]>([]),batchStage=ref(''),drawer=ref(false),detail=ref<any>(null),form=ref<any>({}),note=ref(''),kind=ref('note'),saving=ref(false)
-const source=ref<any>(null),sourceVisible=ref(false),activeTab=ref('profile'),feedbackType=ref('relevant'),feedbackText=ref('')
-const fields=['display_name','city','industry','owner','phone','email','wechat','website','address','contact_name','contact_position']
-const labels:Record<string,string>={display_name:'客户名称',city:'城市',industry:'行业',owner:'销售负责人',phone:'业务电话',email:'邮箱',wechat:'公开业务微信',website:'联系网站',address:'地址',contact_name:'客户联系人',contact_position:'联系人职位'}
-const feedbackLabels:Record<string,string>={relevant:'相关客户',nonbuyer:'非买家',incorrect:'信息有误',stale:'信息失效'}
-const appliedQuery=ref(query())
-let listToken=0,detailToken=0,sourceToken=0
-function query(){return new URLSearchParams({q:q.value,status:status.value,city:city.value,buyer_role:role.value,page:String(page.value),page_size:'20'}).toString()}
-async function load(){const token=++listToken,requested=query();loading.value=true;try{const r=await api('/leads?'+requested);if(token!==listToken)return;rows.value=r.items;total.value=r.total;stats.value=r.stats;appliedQuery.value=requested}finally{if(token===listToken)loading.value=false}}
-async function filter(){page.value=1;await load()}
-async function open(id?:string){const token=++detailToken;const value=id?await api('/leads/'+id):null;if(token!==detailToken)return;activeTab.value='profile';detail.value=value;form.value={display_name:'',city:'',industry:'',owner:'',phone:'',email:'',address:'',status:'new',buyer_role:'unknown',next_followup:'',tags:[],...(value||{})};for(const f of ['phone','email','wechat','address','website','contact_name','contact_position'])form.value[f]=value?.facts?.[f]?.value||'';note.value='';feedbackText.value='';drawer.value=true}
-/** 仅发送变更字段，保护未修改公开事实的引用及核验状态；表单失败保持原值可重试。 */
-async function save(){if(!form.value.display_name?.trim()){ElMessage.warning('填写客户名称');return}const token=detailToken;saving.value=true;try{const body:any={};for(const f of [...fields,'status','buyer_role','next_followup','tags']){const old=['phone','email','wechat','address','website','contact_name','contact_position'].includes(f)?detail.value?.facts?.[f]?.value||'':detail.value?.[f];if(!detail.value||JSON.stringify(old)!==JSON.stringify(form.value[f]))body[f]=form.value[f]??''}const r=await api('/leads'+(detail.value?'/'+detail.value.id:''),detail.value?'PATCH':'POST',body);ElMessage.success('已保存');if(token===detailToken)await open(r.id);await load()}finally{saving.value=false}}
-async function addNote(){if(!note.value.trim())return;const id=detail.value.id,token=detailToken;await api('/leads/'+id+'/followups','POST',{content:note.value,kind:kind.value});const value=await api('/leads/'+id);if(token===detailToken&&detail.value?.id===id){detail.value=value;note.value=''}ElMessage.success('已记录')}
-async function archive(row:any){await ElMessageBox.confirm('归档此客户？','归档',{confirmButtonText:'归档'});await api('/leads/'+row.id,'DELETE');drawer.value=false;await load()}
-async function batch(){if(!batchStage.value||!selection.value.length)return;for(const r of selection.value)await api('/leads/'+r.id,'PATCH',{status:batchStage.value});ElMessage.success('已更新');await load()}
-async function sample(){await ElMessageBox.confirm('导入历史研究资料？','历史资料');const r=await api('/leads/import-sample','POST');ElMessage.success('新增 '+r.imported+' 条');await load()}
-async function evidence(id:string){const token=++sourceToken;const value=await api('/evidence/'+id);if(token!==sourceToken)return;source.value=value;sourceVisible.value=true}
-async function feedback(){const id=detail.value.id,token=detailToken;const prior=new Set<string>(detail.value.tags||[]);await api('/leads/'+id+'/feedback','POST',{kind:feedbackType.value,content:feedbackText.value});const value=await api('/leads/'+id);if(token===detailToken&&detail.value?.id===id){detail.value=value;form.value.tags=[...new Set<string>([...(form.value.tags||[]),...(value.tags||[]).filter((tag:string)=>!prior.has(tag))])];feedbackText.value=''}await load();ElMessage.success('反馈已记住')}
-watch(()=>route.query.lead_id,id=>{if(id)void open(String(id))})
-onMounted(()=>{void load();if(route.query.lead_id)void open(String(route.query.lead_id))})
-onUnmounted(()=>{++listToken;++detailToken;++sourceToken})
+const route = useRoute()
+const router = useRouter()
+const q = ref('')
+const status = ref<LeadStatus | ''>((route.query.status as LeadStatus) || '')
+const owner = ref('')
+const range = ref<'today' | '7' | '30' | 'all' | 'custom'>('all')
+const custom = ref<[string, string] | null>(null)
+const page = ref(1)
+const data = ref<LeadList | null>(null)
+const loading = ref(false)
+const error = ref(false)
+const flash = ref('')
+let timer: number | undefined
+
+const RANGES = [{ v: 'today', l: '今日' }, { v: '7', l: '近 7 天' }, { v: '30', l: '近 30 天' }, { v: 'all', l: '全部' }] as const
+const STATUSES = Object.entries(LEAD_STATUS) as [LeadStatus, { label: string; tone: string }][]
+
+function iso(d: Date) { return dateParts(d.toISOString()).date }
+const filters = computed(() => {
+  let start = '', end = ''
+  if (range.value === 'today') start = iso(new Date())
+  else if (range.value === '7' || range.value === '30') start = iso(new Date(Date.now() - Number(range.value) * 86400000))
+  else if (range.value === 'custom' && custom.value) [start, end] = custom.value
+  return { q: q.value.trim(), status: status.value, owner: owner.value, start, end }
+})
+
+async function load() {
+  loading.value = true
+  error.value = false
+  try {
+    data.value = await api<LeadList>(`/leads${query({ ...filters.value, page: page.value, page_size: 20 })}`, { notify: false })
+  } catch {
+    error.value = true
+  } finally {
+    loading.value = false
+  }
+}
+watch(q, () => { window.clearTimeout(timer); timer = window.setTimeout(() => { page.value = 1; load() }, 250) })
+watch([status, owner, range, custom], () => { page.value = 1; load() })
+watch(page, load)
+onMounted(load)
+
+const counts = computed(() => data.value?.counts)
+const stats = computed(() => counts.value ? [
+  { label: '全部线索', value: counts.value.all, icon: 'lead' },
+  { label: '新线索', value: counts.value.new, icon: 'flag' },
+  { label: '跟进中', value: counts.value.contacted + counts.value.following, icon: 'phone' },
+  { label: '已成交', value: counts.value.won, icon: 'check' },
+] : [])
+const exportUrl = computed(() => `/api/leads/export${query(filters.value)}`)
+
+async function changeStatus(row: LeadItem, next: LeadStatus) {
+  if (next === row.status) return
+  if (next === 'invalid') {
+    try {
+      await ElMessageBox.confirm('', `将 ${row.company.name} 标为无效`, { confirmButtonText: '标为无效', cancelButtonText: '取消', type: 'warning', confirmButtonClass: 'el-button--danger' })
+    } catch { return }
+  }
+  await patch(`/leads/${row.id}`, { status: next })
+  ElMessage.success('已更新状态')
+  flash.value = row.id
+  window.setTimeout(() => { flash.value = '' }, 1200)
+  load()
+}
+const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flash' : '')
 </script>
 
 <template>
-  <div class="page leads-page">
-    <div class="page-title-row"><div class="row"><h1>客户线索</h1><span class="count-pill">{{total}}</span></div><div class="row"><el-dropdown><el-button text :icon="More" aria-label="更多操作"/><template #dropdown><el-dropdown-menu><el-dropdown-item @click="sample">导入历史资料</el-dropdown-item></el-dropdown-menu></template></el-dropdown><a :href="'/api/leads/export?'+appliedQuery"><el-button :icon="Download">导出</el-button></a><el-button type="primary" :icon="Plus" @click="open()">新建客户</el-button></div></div>
-    <div class="view-tabs"><button :class="{active:!status}" @click="status='';filter()">全部</button><button v-for="(label,key) in stages" :key="key" :class="{active:status===key}" @click="status=String(key);filter()">{{label}}<small>{{stats[key]||0}}</small></button></div>
-    <section class="lead-table-surface">
-      <div class="table-tools"><el-input v-model="q" placeholder="搜索客户" :prefix-icon="Search" clearable @keyup.enter="filter" @clear="filter"/><div class="row"><el-input v-model="city" placeholder="城市" clearable @keyup.enter="filter" @clear="filter"/><el-select v-model="role" placeholder="买家角色" clearable @change="filter"><el-option v-for="(label,key) in roles" :key="key" :label="label" :value="key"/></el-select><el-button text :icon="Refresh" title="刷新" aria-label="刷新" @click="load"/></div></div>
-      <div v-if="selection.length" class="selection-bar"><span>{{selection.length}} 已选</span><el-select v-model="batchStage" placeholder="状态"><el-option v-for="(label,key) in stages" :key="key" :label="label" :value="key"/></el-select><el-button size="small" @click="batch">更新</el-button></div>
-      <el-table :data="rows" v-loading="loading" @selection-change="selection=$event" @row-dblclick="open($event.id)">
-        <el-table-column type="selection" width="40"/>
-        <el-table-column label="客户" min-width="250"><template #default="{row}"><button class="lead-name" @click="open(row.id)">{{row.display_name}}</button><div v-if="row.tags?.length" class="tiny-tags"><span v-for="tag in row.tags" :key="tag">{{tag}}</span></div></template></el-table-column>
-        <el-table-column prop="city" label="城市" width="90"/>
-        <el-table-column label="角色" width="110"><template #default="{row}"><span :class="['role-label',row.buyer_role||'unknown']">{{roles[row.buyer_role]||'待核实'}}</span></template></el-table-column>
-        <el-table-column label="状态" width="110"><template #default="{row}"><span :class="['crm-status',row.status]"><i></i>{{stages[row.status]||row.status}}</span></template></el-table-column>
-        <el-table-column label="优先级" width="78"><template #default="{row}"><span class="priority-value">{{row.score}}</span></template></el-table-column>
-        <el-table-column label="联系方式" min-width="220"><template #default="{row}"><FactValue :fact="row.facts?.phone" phone/><small v-if="row.contact_summary?.phone_incomplete" class="lead-contact-email">短号待核验</small><small v-else-if="row.contact_summary?.phone_status==='invalid'" class="lead-contact-email">号码格式待核验</small><div v-if="row.facts?.email?.value" class="lead-contact-email"><FactValue :fact="row.facts.email" email/></div><FactValue v-if="row.facts?.wechat?.value" :fact="row.facts.wechat" wechat/><small v-if="!row.contact_summary?.usable_fields?.length" class="lead-contact-email">联系信息待补</small></template></el-table-column>
-        <el-table-column label="负责人" width="110"><template #default="{row}">{{row.owner||'—'}}</template></el-table-column>
-        <el-table-column label="下次跟进" width="152"><template #default="{row}">{{row.next_followup?.slice(5,16)||'—'}}</template></el-table-column>
-        <el-table-column label="" width="50" fixed="right"><template #default="{row}"><el-button text :icon="ArrowRight" title="客户详情" aria-label="客户详情" @click="open(row.id)"/></template></el-table-column>
-        <template #empty><el-empty description="暂无客户" :image-size="75"/></template>
-      </el-table>
-      <div class="table-pagination"><el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev, pager, next" @current-change="load"/></div>
-    </section>
-    <el-drawer v-model="drawer" :title="detail?.display_name||'新建客户'" size="660px">
-      <div v-if="detail" class="lead-contact-actions"><a v-if="detail.contact_summary?.phone_href" :href="detail.contact_summary.phone_href">拨打电话</a><a v-if="detail.contact_summary?.usable_fields?.includes('email')" :href="'mailto:'+detail.facts.email.value">邮件</a><FactValue v-if="detail.facts?.website?.value" :fact="detail.facts.website" website/><FactValue v-if="detail.facts?.wechat?.value" :fact="detail.facts.wechat" wechat/><span v-if="detail.contact_summary?.phone_status==='invalid'">号码格式待核验</span><span>{{detail.contact_summary?.purpose}}</span></div>
-      <el-tabs v-model="activeTab">
-        <el-tab-pane name="profile" label="资料"><el-form label-position="top" class="lead-form"><el-form-item v-for="field in fields" :key="field" :label="labels[field]"><el-input v-model="form[field]"/><FactValue v-if="detail&&(detail.facts?.[field]?.effective_date||detail.facts?.[field]?.scope||detail.facts?.[field]?.alternatives?.length||['disputed','inactive'].includes(detail.facts?.[field]?.verification))" :fact="detail.facts[field]" :phone="field==='phone'" :email="field==='email'" :website="field==='website'" :wechat="field==='wechat'"/></el-form-item><el-form-item label="状态"><el-select v-model="form.status"><el-option v-for="(label,key) in stages" :key="key" :label="label" :value="key"/></el-select></el-form-item><el-form-item label="买家角色"><el-select v-model="form.buyer_role"><el-option v-for="(label,key) in roles" :key="key" :label="label" :value="key"/></el-select></el-form-item><el-form-item label="下次跟进"><el-date-picker v-model="form.next_followup" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="选择时间" clearable/></el-form-item><el-form-item label="标签"><el-select v-model="form.tags" multiple filterable allow-create default-first-option/></el-form-item></el-form><div class="row"><el-button type="primary" :loading="saving" @click="save">保存</el-button><el-button v-if="detail" text type="danger" @click="archive(detail)">归档</el-button></div><template v-if="detail"><div v-if="detail.match_reason" class="match-summary">{{detail.match_reason}}</div><div v-for="field in ['credit_code','registry_status','categories','brands','headcount','revenue','procurement','supplier','purchase_price','frequency']" :key="field" class="fact-row"><span>{{factLabels[field]}}</span><FactValue :fact="detail.facts?.[field]"/></div><ProcurementSignals :signals="detail.procurement_signals"/></template></el-tab-pane>
-        <el-tab-pane name="sources" label="证据" :disabled="!detail"><div v-for="(item,i) in detail?.evidence" :key="i" class="evidence-card"><div class="row"><span class="field-label">{{factLabels[item.field]||item.field}}</span><small>{{item.captured_at}}</small></div><blockquote>{{item.quote||item.snippet||'—'}}</blockquote><a :href="item.url" target="_blank" rel="noopener noreferrer">{{item.title||item.url}} ↗</a><el-button v-if="item.source_id&&!detail.tags?.includes('历史研究样本')" text size="small" @click="evidence(item.source_id)">原文</el-button></div><el-empty v-if="!detail?.evidence?.length" description="暂无证据"/></el-tab-pane>
-        <el-tab-pane name="followups" label="跟进" :disabled="!detail"><el-select v-model="kind"><el-option label="备注" value="note"/><el-option label="电话" value="phone"/><el-option label="拜访" value="visit"/><el-option label="邮件" value="email"/></el-select><el-input v-model="note" type="textarea" :rows="4" placeholder="记录沟通与下一步…" class="note-input"/><el-button type="primary" @click="addNote">记录</el-button><el-timeline class="followups"><el-timeline-item v-for="item in detail?.followups" :key="item.id" :timestamp="item.created_at"><p class="pre-text">{{item.content}}</p></el-timeline-item></el-timeline></el-tab-pane>
-        <el-tab-pane name="feedback" label="反馈" :disabled="!detail"><el-radio-group v-model="feedbackType"><el-radio-button v-for="(label,key) in feedbackLabels" :key="key" :value="key">{{label}}</el-radio-button></el-radio-group><el-input v-model="feedbackText" type="textarea" :rows="4" placeholder="补充原因…" class="note-input"/><el-button type="primary" @click="feedback">提交反馈</el-button><div v-for="item in detail?.feedback" :key="item.id" class="feedback-row"><strong>{{feedbackLabels[item.kind]}}</strong><small>{{item.created_at}}</small><p>{{item.content}}</p></div></el-tab-pane>
-      </el-tabs>
-    </el-drawer>
-    <el-dialog v-model="sourceVisible" title="来源原文" width="80%"><a :href="source?.url" target="_blank" rel="noopener noreferrer">{{source?.url}}</a><pre class="source-body">{{source?.body}}</pre></el-dialog>
+  <div class="page">
+    <div class="page-head">
+      <span class="page-title"><Icon name="lead" :size="22" />线索管理</span>
+      <div class="page-actions"><a :href="exportUrl" class="el-button" data-action-id="A-308"><Icon name="download" :size="16" /><span>导出</span></a></div>
+    </div>
+
+    <div class="kpis">
+      <div v-for="s in stats" :key="s.label" class="kpi">
+        <div class="kpi-top"><span class="kpi-icon"><Icon :name="s.icon" :size="18" /></span><span class="kpi-label">{{ s.label }}</span></div>
+        <div class="kpi-num">{{ s.value }}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <el-input v-model="q" class="search" clearable placeholder="搜索客户或线索依据" data-action-id="A-301" @keydown.esc="q = ''">
+          <template #prefix><Icon name="search" :size="16" /></template>
+        </el-input>
+        <el-select v-model="owner" clearable filterable placeholder="负责人" class="owner" data-action-id="A-303">
+          <el-option v-for="o in data?.owners || []" :key="o" :label="o" :value="o" />
+        </el-select>
+        <button v-for="r in RANGES" :key="r.v" type="button" class="chip" :class="{ on: range === r.v }" data-action-id="A-304" @click="range = r.v; custom = null">{{ r.l }}</button>
+        <el-date-picker v-model="custom" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" class="dates"
+                        @change="range = custom ? 'custom' : 'all'" />
+      </div>
+      <div class="toolbar status-row">
+        <button type="button" class="chip" :class="{ on: !status }" data-action-id="A-302" @click="status = ''">全部 {{ counts?.all ?? '' }}</button>
+        <button v-for="[k, s] in STATUSES" :key="k" type="button" class="chip" :class="{ on: status === k }" data-action-id="A-302" @click="status = k">{{ s.label }} {{ counts?.[k] ?? '' }}</button>
+      </div>
+
+      <div v-if="error" class="error-line">无法读取线索<el-button size="small" @click="load">重试</el-button></div>
+      <template v-else>
+        <el-table v-loading="loading && !!data" :data="data?.items || []" row-key="id" :row-class-name="rowClass" class="desktop">
+          <el-table-column label="客户" min-width="200" header-align="center">
+            <template #default="{ row }">
+              <RouterLink :to="`/leads/${row.id}`" class="cell-main" data-action-id="A-305">{{ row.company.name }}</RouterLink>
+              <div v-if="row.company.region" class="cell-sub">{{ row.company.region }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="线索依据" min-width="240" header-align="center" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.match_reason || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="评分" width="80" align="center"><template #default="{ row }"><span class="num">{{ row.score }}</span></template></el-table-column>
+          <el-table-column label="状态" width="140" align="center">
+            <template #default="{ row }">
+              <el-select :model-value="row.status" class="status-select" data-action-id="A-306" @change="(v: LeadStatus) => changeStatus(row, v)">
+                <el-option v-for="[k, s] in STATUSES" :key="k" :label="s.label" :value="k" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="负责人" width="100" align="center"><template #default="{ row }">{{ row.owner || '—' }}</template></el-table-column>
+          <el-table-column label="下次跟进" width="110" align="center">
+            <template #default="{ row }"><div class="cell-date">{{ row.next_followup_at ? row.next_followup_at.slice(0, 10) : '—' }}<small v-if="row.next_followup_at.length > 10">{{ row.next_followup_at.slice(11, 16) }}</small></div></template>
+          </el-table-column>
+          <el-table-column label="创建" width="110" align="center"><template #default="{ row }">{{ dateParts(row.created_at).date }}</template></el-table-column>
+          <el-table-column label="操作" width="80" align="center">
+            <template #default="{ row }"><RouterLink :to="`/leads/${row.id}`" data-action-id="A-305">打开</RouterLink></template>
+          </el-table-column>
+          <template #empty>
+            <div v-if="!loading" class="empty"><span class="icon-wrap"><Icon name="lead" :size="40" /></span>
+              <div>{{ q || status || owner || range !== 'all' ? '没有符合条件的线索' : '还没有线索' }}</div>
+              <el-button v-if="!(q || status || owner || range !== 'all')" type="primary" @click="router.push('/workbench')"><Icon name="plus" :size="16" /><span>去找买家</span></el-button></div>
+          </template>
+        </el-table>
+
+        <div class="mobile">
+          <RouterLink v-for="row in data?.items || []" :key="row.id" :to="`/leads/${row.id}`" class="mcard" data-action-id="A-305">
+            <div class="mrow"><span class="cell-main">{{ row.company.name }}</span><span class="tag" :class="LEAD_STATUS[row.status].tone">{{ row.status_label }}</span></div>
+            <div class="mrow"><span class="muted">线索依据</span><span class="mval">{{ row.match_reason || '—' }}</span></div>
+            <div class="mrow"><span class="muted">评分</span><span>{{ row.score }}</span></div>
+            <div class="mrow"><span class="muted">负责人</span><span>{{ row.owner || '—' }}</span></div>
+            <div class="mrow"><span class="muted">创建</span><span>{{ dateParts(row.created_at).date }}</span></div>
+          </RouterLink>
+          <div v-if="data && !data.items.length" class="empty">没有线索</div>
+        </div>
+
+        <div v-if="data && data.total > 20" class="pager">
+          <el-pagination v-model:current-page="page" layout="total, prev, pager, next" :page-size="20" :total="data.total" data-action-id="A-307" />
+        </div>
+      </template>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.owner { width: 140px; }
+.dates { max-width: 280px; }
+.status-row { margin-top: -4px; }
+.status-select { width: 112px; }
+:deep(.flash) td { animation: flash 1.2s; }
+@keyframes flash { 0% { background: var(--brand-tint); } 100% { background: transparent; } }
+a.el-button { text-decoration: none; }
+.mobile { display: none; }
+@media (max-width: 760px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .desktop { display: none; }
+  .mobile { display: flex; flex-direction: column; gap: 12px; }
+  .mcard { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); }
+  .mrow { display: flex; justify-content: space-between; gap: 12px; min-height: 24px; }
+  .mval { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owner, .dates { width: 100%; max-width: none; }
+}
+</style>

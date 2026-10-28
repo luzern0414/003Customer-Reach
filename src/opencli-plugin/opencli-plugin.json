@@ -1,6 +1,0 @@
-{
-  "name": "acq",
-  "version": "0.1.0",
-  "opencli": ">=1.8.0",
-  "description": "AI 获客系统定制 OpenCLI 插件：乙方宝（yfbzb）、千里马（qianlima）、中国采购与招标网（chinabidding）、剑鱼（jianyu list）、必联网（ebnew）、中国政府采购网（ccgp）、全国公共资源交易平台（ggzy）"
-}

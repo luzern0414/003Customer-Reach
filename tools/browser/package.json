@@ -1,8 +1,0 @@
-{
-  "name": "client-reach-browser-runtime",
-  "private": true,
-  "description": "固定版本的Edge公开资料读取与检索运行时（OpenCLI 使用 vendor/opencli 内置定制版）",
-  "dependencies": {
-    "playwright": "1.62.0"
-  }
-}

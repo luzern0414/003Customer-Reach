@@ -1,8 +1,0 @@
-# 2026-09-30 实际安装在项目虚拟环境内的包；其余依赖只读复用现有运行时。
-html5lib==1.1
-mcp==1.30.0
-mcp-server-fetch==2026.8.18
-protego==0.7.0
-readabilipy==0.3.0
-regex==2026.9.29
-webencodings==0.6.1
