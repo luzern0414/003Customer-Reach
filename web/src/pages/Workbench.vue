@@ -11,6 +11,7 @@ import { configureMarkdown, displayMarkdown } from '../markdown'
 import { JOB_STATUS, LEAD_STATUS, dayGroup, duration } from '../format'
 import Icon from '../components/Icon.vue'
 import ReportCard from '../components/ReportCard.vue'
+import { exhausted, loadMe } from '../session'
 
 const route = useRoute()
 const router = useRouter()
@@ -123,7 +124,7 @@ async function newConversation() {
 
 async function send() {
   const content = input.value.trim()
-  if (!content || busy.value || sending.value) return
+  if (!content || busy.value || sending.value || exhausted()) return
   sending.value = true
   try {
     let id = conversationId.value
@@ -133,6 +134,7 @@ async function send() {
     const result = await post<{ job: Job }>(`/conversations/${id}/messages`, { content, attachment_ids: files.value.map((f) => f.id) })
     input.value = ''
     files.value = []
+    loadMe()
     if (id !== conversationId.value) {
       await router.push(`/c/${id}`)
     } else {
@@ -210,7 +212,7 @@ const toolSummary = (j: JobState) => {
 const roleLabel = { target: '目标企业', buyer: '采购方', related: '相关' }
 
 function onEsc(event: KeyboardEvent) { if (event.key === 'Escape') { showArtifacts.value = false; showList.value = false } }
-onMounted(() => { loadList(); loadConversation(conversationId.value); window.addEventListener('keydown', onEsc) })
+onMounted(() => { loadMe(); loadList(); loadConversation(conversationId.value); window.addEventListener('keydown', onEsc) })
 onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.removeEventListener('keydown', onEsc) })
 </script>
 
@@ -348,13 +350,13 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
             <el-tag v-for="f in files" :key="f.id" closable data-action-id="A-112" @close="files = files.filter((x) => x.id !== f.id)">{{ f.filename }}</el-tag>
           </div>
           <div class="input-box">
-            <button type="button" class="icon-btn" title="上传资料" aria-label="上传资料" :disabled="uploading || busy" data-action-id="A-111" @click="fileInput?.click()">
+            <button type="button" class="icon-btn" title="上传资料" aria-label="上传资料" :disabled="uploading || busy || exhausted()" data-action-id="A-111" @click="fileInput?.click()">
               <Icon name="attach" />
             </button>
             <input ref="fileInput" type="file" hidden multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" @change="upload" />
-            <textarea v-model="input" rows="1" maxlength="8000" :disabled="busy" placeholder="描述你的产品，或输入企业名称" @keydown="onKey" />
+            <textarea v-model="input" rows="1" maxlength="8000" :disabled="busy || exhausted()" :placeholder="exhausted() ? '使用次数已用完' : '描述你的产品，或输入企业名称'" @keydown="onKey" />
             <button v-if="busy" type="button" class="send stop" title="停止" aria-label="停止" data-action-id="A-110" @click="stop"><Icon name="stop" :size="16" /></button>
-            <button v-else type="button" class="send" title="发送" aria-label="发送" :disabled="!input.trim() || sending" data-action-id="A-109" @click="send"><Icon name="send" :size="16" /></button>
+            <button v-else type="button" class="send" title="发送" aria-label="发送" :disabled="!input.trim() || sending || exhausted()" data-action-id="A-109" @click="send"><Icon name="send" :size="16" /></button>
           </div>
           <div v-if="uploading" class="muted small">正在解析资料…</div>
         </div>

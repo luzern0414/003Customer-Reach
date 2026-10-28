@@ -12,7 +12,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased
 
-from . import crawl, llm
+from . import auth, crawl, llm
 from .config import CRAWL_OUT, UPLOADS
 from .db import (Attachment, Company, Conversation, CustomSite, DiscoveredSite, Fact, Feedback, Followup, Job, JobCompany, Knowledge, Lead,
                  Message, Notice, NoticeParty, Session, SiteStat, Source, get_settings, now)
@@ -45,18 +45,32 @@ def _get(db, model, key):
 
 # ---------- 会话与任务 ----------
 
-def conversations() -> list[dict]:
+def _own(conversation: Conversation, user: dict) -> Conversation:
+    """对话只对创建者可见；管理员可查看全部。"""
+    if conversation.user_id != user['id'] and not user['is_admin']:
+        raise NotFound()
+    return conversation
+
+
+def check_job(job_id: str, user: dict) -> None:
     with Session() as db:
-        rows = list(db.scalars(select(Conversation).order_by(Conversation.updated_at.desc()).limit(100)))
+        job = _get(db, Job, job_id)
+        _own(_get(db, Conversation, job.conversation_id), user)
+
+
+def conversations(user: dict) -> list[dict]:
+    with Session() as db:
+        rows = list(db.scalars(select(Conversation).where(Conversation.user_id == user['id'])
+                               .order_by(Conversation.updated_at.desc()).limit(100)))
         latest = {}
         for job in db.scalars(select(Job).where(Job.conversation_id.in_([c.id for c in rows])).order_by(Job.created_at)):
             latest[job.conversation_id] = job.status
         return [{**_row(c, 'id', 'title', 'updated_at'), 'status': latest.get(c.id, '')} for c in rows]
 
 
-def create_conversation() -> dict:
+def create_conversation(user: dict) -> dict:
     with Session.begin() as db:
-        conversation = Conversation()
+        conversation = Conversation(user_id=user['id'])
         db.add(conversation)
         db.flush()
         return _row(conversation, 'id', 'title', 'updated_at')
@@ -67,9 +81,9 @@ def job_view(job: Job) -> dict:
                 'created_at', 'finished_at')
 
 
-def conversation_detail(conversation_id: str) -> dict:
+def conversation_detail(conversation_id: str, user: dict) -> dict:
     with Session() as db:
-        conversation = _get(db, Conversation, conversation_id)
+        conversation = _own(_get(db, Conversation, conversation_id), user)
         messages = db.scalars(select(Message).where(Message.conversation_id == conversation_id)
                               .order_by(Message.created_at))
         jobs = db.scalars(select(Job).where(Job.conversation_id == conversation_id).order_by(Job.created_at))
@@ -84,15 +98,16 @@ def conversation_detail(conversation_id: str) -> dict:
         return result
 
 
-def submit(conversation_id: str, content: str, attachment_ids: list[str], mode: str = '', company: str = '') -> dict:
+def submit(conversation_id: str, content: str, attachment_ids: list[str], user: dict, mode: str = '', company: str = '') -> dict:
     with Session.begin() as db:
-        conversation = _get(db, Conversation, conversation_id)
+        conversation = _own(_get(db, Conversation, conversation_id), user)
         busy = db.scalar(select(Job.id).where(Job.conversation_id == conversation_id,
                                               Job.status.in_(['queued', 'running', 'awaiting_user'])))
         if busy:
             raise ValueError('当前对话还有进行中的任务')
+        auth.consume(db, user['id'])
         message = Message(conversation_id=conversation_id, role='user', content=content,
-                          attachment_ids=[a for a in attachment_ids if db.get(Attachment, a)])
+                          attachment_ids=[a for a in attachment_ids if _own_attachment(db, a, user)])
         db.add(message)
         db.flush()
         hints = {k: v for k, v in (('mode_hint', mode), ('company_hint', company)) if v}
@@ -128,7 +143,7 @@ def attachment_view(item: Attachment) -> dict:
     return {**_row(item, 'id', 'filename', 'size', 'created_at'), 'meta': item.meta, 'chars': len(item.text)}
 
 
-def save_attachment(filename: str, content: bytes) -> dict:
+def save_attachment(filename: str, content: bytes, user: dict) -> dict:
     suffix = Path(filename).suffix.lower()
     parsed = parse_document(suffix, content)
     digest = hashlib.sha256(content).hexdigest()
@@ -136,15 +151,22 @@ def save_attachment(filename: str, content: bytes) -> dict:
     path.write_bytes(content)
     with Session.begin() as db:
         item = Attachment(filename=Path(filename).name[:255], size=len(content), sha256=digest, path=str(path),
-                          text=parsed.text, meta=parsed.metadata)
+                          text=parsed.text, meta=parsed.metadata, user_id=user['id'])
         db.add(item)
         db.flush()
         return {**attachment_view(item), 'text': item.text[:20000]}
 
 
-def attachment_detail(attachment_id: str) -> dict:
+def _own_attachment(db, attachment_id: str, user: dict) -> Attachment | None:
+    item = db.get(Attachment, attachment_id)
+    return item if item and (item.user_id == user['id'] or user['is_admin']) else None
+
+
+def attachment_detail(attachment_id: str, user: dict) -> dict:
     with Session() as db:
-        item = _get(db, Attachment, attachment_id)
+        item = _own_attachment(db, attachment_id, user)
+        if not item:
+            raise NotFound()
         return {**attachment_view(item), 'text': item.text[:20000]}
 
 
@@ -473,7 +495,7 @@ def export_company(company_id: str) -> tuple[str, bytes]:
 
 # ---------- 概览 ----------
 
-def overview(days: int) -> dict:
+def overview(days: int, user: dict) -> dict:
     """驾驶舱：时间范围内的线索、企业、公告、研究任务与站点表现。days=0 表示全部。"""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat() if days else ''
     with Session() as db:
@@ -513,7 +535,8 @@ def overview(days: int) -> dict:
         status_rows = db.execute(select(Lead.status, func.count()).where(live, recent(Lead.created_at)).group_by(Lead.status)).all()
         kind_rows = db.execute(select(Notice.kind, func.count()).where(recent(Notice.created_at)).group_by(Notice.kind)).all()
         jobs = db.execute(select(Job, Conversation.title).join(Conversation, Conversation.id == Job.conversation_id)
-                          .where(Job.mode.in_(['find_buyers', 'company'])).order_by(Job.created_at.desc()).limit(8)).all()
+                          .where(Job.mode.in_(['find_buyers', 'company']), Conversation.user_id == user['id'])
+                          .order_by(Job.created_at.desc()).limit(8)).all()
         sites = [{'site': row.site, 'attempts': row.attempts, 'successes': row.successes, 'adopted': row.adopted,
                   'rate': round(row.successes / row.attempts, 3) if row.attempts else None, 'last_status': row.last_status}
                  for row in db.scalars(select(SiteStat))]

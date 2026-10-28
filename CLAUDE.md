@@ -31,7 +31,8 @@ web/ (Vue 3 + Element Plus)  →  backend/app (FastAPI，单进程)
 3. **事实必须可追溯**：模型输出的每个字段带 quote，`research/verify.py` 核验 quote 出现在来源正文中、值出现在 quote 中，未通过一律不保存。未披露的金额、联系人保持为空。
 4. **数据源**：内置站点在 `sites.py`（文件头注释记录实测结论与日期）；用户在“数据源”页面新增的站点存于 `custom_sites` 表，`all_sites()` 合并两者，管线只通过它取站点。新增内置站点前先用 LuzCrawl 实测列表页与详情页正文（是否有详情链接、正文是否完整、是否打码），或用 `POST /api/sources/test` 验证。
 5. 模型服务只支持 `json_schema` / `json_mode` 结构化输出（强制 tool_choice 会被拒绝）。
-6. 不提交 `config/apikey.txt`、`data/`。文档用中文；代码注释风格与周围代码一致。
+6. **账号**：除 `/api/auth/*`、`/api/health` 外的接口都要求登录（`auth.py` + `main.py` 中间件）；配置类接口仅管理员可用；对话、任务、附件在服务端核对归属；研究次数在 `services.submit` 的同一事务内用条件更新扣减。
+7. 不提交 `config/apikey.txt`、`data/`。文档用中文；代码注释风格与周围代码一致。
 
 ## 常用命令
 

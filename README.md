@@ -42,6 +42,13 @@ powershell -File start.ps1     # http://127.0.0.1:8000
 powershell -File stop.ps1
 ```
 
+### 账号与使用次数
+
+- 打开后先登录；没有账号可自行注册。注册用户可发起 **5 次**研究（工作台发送一次或企业主页“继续研究”一次各算 1 次），用完后不能再发起。
+- 首次启动自动创建管理员 `admin`，初始密码 `admin`，不限次数，可使用“数据源”“系统设置”。**对外部署前务必改密码**：首次启动前设置环境变量 `DEALRADAR_ADMIN_PASSWORD`。
+- 其他环境变量：`DEALRADAR_ADMIN_USERNAME`（管理员用户名）、`DEALRADAR_DEFAULT_QUOTA`（注册用户次数，默认 5）。
+- 对话、研究任务、上传资料按账号隔离；企业档案与线索为团队共享。
+
 开发：`backend` 下 `.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000 --reload`；`web` 下 `npm run dev`（/api 代理到 8000）。
 
 测试：`backend` 下 `.venv\Scripts\python.exe -m pytest tests -q`。

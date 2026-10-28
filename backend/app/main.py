@@ -9,7 +9,7 @@ from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import crawl, llm, runner, services
+from . import auth, crawl, llm, runner, services
 from .config import WEB_DIST
 from .db import get_settings, init_db, save_settings
 from .documents import DocumentError
@@ -22,11 +22,44 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    auth.ensure_admin()
     runner.recover()
     yield
 
 
 app = FastAPI(title='DealRadar', lifespan=lifespan)
+
+
+# 无需登录的接口；其余 /api 均要求登录，配置类接口仅管理员可用
+PUBLIC = {'/api/auth/login', '/api/auth/register', '/api/auth/logout', '/api/auth/me', '/api/health'}
+ADMIN_PREFIXES = ('/api/settings', '/api/knowledge', '/api/discovered-sources', '/api/sources/sites', '/api/sources/test')
+
+
+@app.middleware('http')
+async def _authenticate(request: Request, call_next):
+    response = await _gate(request, call_next)
+    # 安全响应头：禁止被嵌入框架、禁止内容类型嗅探、跨站只发送来源域名
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    return response
+
+
+async def _gate(request: Request, call_next):
+    path = request.url.path
+    if path.startswith('/api/') and path not in PUBLIC:
+        user = await asyncio.to_thread(auth.user_for, request.cookies.get(auth.COOKIE))
+        if not user:
+            return JSONResponse({'detail': '请先登录'}, 401)
+        if (path == '/api/sources' or path.startswith(ADMIN_PREFIXES)) and not user['is_admin']:
+            return JSONResponse({'detail': '仅管理员可用'}, 403)
+        request.state.user = user
+    return await call_next(request)
+
+
+@app.exception_handler(auth.AuthError)
+async def _auth_error(_, exc: auth.AuthError):
+    return JSONResponse({'detail': str(exc)}, exc.status)
 
 
 @app.exception_handler(services.NotFound)
@@ -44,6 +77,49 @@ async def _document(_, exc: DocumentError):
     return JSONResponse({'detail': exc.args[0]}, exc.args[1] if len(exc.args) > 1 else 400)
 
 
+# ---------- 账号 ----------
+
+class CredentialsIn(BaseModel):
+    username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=1, max_length=64)
+
+
+def _signed_in(request: Request, user: dict, token: str) -> JSONResponse:
+    response = JSONResponse(user)
+    response.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True, samesite='lax',
+                        secure=request.url.scheme == 'https')
+    return response
+
+
+def _client(request: Request) -> str:
+    return request.client.host if request.client else ''
+
+
+@app.post('/api/auth/register')
+def register(body: CredentialsIn, request: Request):
+    return _signed_in(request, *auth.register(body.username, body.password, _client(request)))
+
+
+@app.post('/api/auth/login')
+def login(body: CredentialsIn, request: Request):
+    return _signed_in(request, *auth.login(body.username, body.password))
+
+
+@app.post('/api/auth/logout')
+def logout(request: Request):
+    if token := request.cookies.get(auth.COOKIE):
+        auth.logout(token)
+    response = JSONResponse({'ok': True})
+    response.delete_cookie(auth.COOKIE)
+    return response
+
+
+@app.get('/api/auth/me')
+def me(request: Request):
+    # 未登录返回 null，前端据此跳转登录页（不产生 401 报错）
+    return auth.user_for(request.cookies.get(auth.COOKIE))
+
+
 # ---------- 会话与任务 ----------
 
 class MessageIn(BaseModel):
@@ -59,35 +135,37 @@ class ContinueIn(BaseModel):
 
 
 @app.get('/api/conversations')
-def list_conversations():
-    return services.conversations()
+def list_conversations(request: Request):
+    return services.conversations(request.state.user)
 
 
 @app.post('/api/conversations')
-def new_conversation():
-    return services.create_conversation()
+def new_conversation(request: Request):
+    return services.create_conversation(request.state.user)
 
 
 @app.get('/api/conversations/{conversation_id}')
-def get_conversation(conversation_id: str):
-    return services.conversation_detail(conversation_id)
+def get_conversation(conversation_id: str, request: Request):
+    return services.conversation_detail(conversation_id, request.state.user)
 
 
 @app.post('/api/conversations/{conversation_id}/messages', status_code=202)
-async def send_message(conversation_id: str, body: MessageIn):
-    result = services.submit(conversation_id, body.content.strip(), body.attachment_ids, body.mode, body.company)
+async def send_message(conversation_id: str, body: MessageIn, request: Request):
+    result = services.submit(conversation_id, body.content.strip(), body.attachment_ids, request.state.user,
+                             body.mode, body.company)
     runner.start(result['job']['id'])
     return result
 
 
 @app.get('/api/jobs/{job_id}')
-def get_job(job_id: str):
+def get_job(job_id: str, request: Request):
+    services.check_job(job_id, request.state.user)
     return services.job_detail(job_id)
 
 
 @app.get('/api/jobs/{job_id}/events')
 async def job_events(job_id: str, request: Request, after: int = Query(0, ge=0)):
-    services.job_detail(job_id)
+    services.check_job(job_id, request.state.user)
     last = request.headers.get('last-event-id')
     cursor = int(last) if last and last.isdigit() else after
     return StreamingResponse(sse(job_id, cursor, request.is_disconnected), media_type='text/event-stream',
@@ -95,24 +173,28 @@ async def job_events(job_id: str, request: Request, after: int = Query(0, ge=0))
 
 
 @app.get('/api/jobs/{job_id}/results')
-def job_results(job_id: str):
+def job_results(job_id: str, request: Request):
+    services.check_job(job_id, request.state.user)
     return services.job_results(job_id)
 
 
 @app.get('/api/jobs/{job_id}/report')
-def job_report(job_id: str):
+def job_report(job_id: str, request: Request):
+    services.check_job(job_id, request.state.user)
     return services.job_report(job_id)
 
 
 @app.post('/api/jobs/{job_id}/pause')
-def pause_job(job_id: str):
+def pause_job(job_id: str, request: Request):
+    services.check_job(job_id, request.state.user)
     if not runner.pause(job_id):
         raise HTTPException(409, '任务未在运行')
     return {'ok': True}
 
 
 @app.post('/api/jobs/{job_id}/continue')
-async def continue_job(job_id: str, body: ContinueIn):
+async def continue_job(job_id: str, body: ContinueIn, request: Request):
+    services.check_job(job_id, request.state.user)
     job = services.job_detail(job_id)
     if job['status'] not in ('paused', 'awaiting_user', 'partial', 'failed') or runner.active(job_id):
         raise HTTPException(409, '任务当前不能继续')
@@ -123,14 +205,14 @@ async def continue_job(job_id: str, body: ContinueIn):
 # ---------- 附件与来源 ----------
 
 @app.post('/api/attachments')
-async def upload(file: UploadFile = File(...)):
+async def upload(request: Request, file: UploadFile = File(...)):
     content = await file.read(10 * 1024 * 1024 + 1)
-    return await asyncio.to_thread(services.save_attachment, file.filename or 'file', content)
+    return await asyncio.to_thread(services.save_attachment, file.filename or 'file', content, request.state.user)
 
 
 @app.get('/api/attachments/{attachment_id}')
-def get_attachment(attachment_id: str):
-    return services.attachment_detail(attachment_id)
+def get_attachment(attachment_id: str, request: Request):
+    return services.attachment_detail(attachment_id, request.state.user)
 
 
 @app.get('/api/sources/{source_id}')
@@ -166,10 +248,15 @@ def export_company(company_id: str):
 
 
 @app.post('/api/companies/{company_id}/research', status_code=202)
-async def research_company(company_id: str, body: ResearchIn):
+async def research_company(company_id: str, body: ResearchIn, request: Request):
+    user = request.state.user
     name = services.company_detail(company_id)['name']
-    conversation_id = body.conversation_id or services.create_conversation()['id']
-    result = services.submit(conversation_id, f'研究{name}的采购、中标与上下游', [], 'company', name)
+    if body.conversation_id:
+        services.conversation_detail(body.conversation_id, user)
+    elif not user['unlimited'] and not user['remaining']:
+        raise auth.AuthError('使用次数已用完', 403)
+    conversation_id = body.conversation_id or services.create_conversation(user)['id']
+    result = services.submit(conversation_id, f'研究{name}的采购、中标与上下游', [], user, 'company', name)
     runner.start(result['job']['id'])
     return {**result, 'conversation_id': conversation_id}
 
@@ -182,8 +269,8 @@ def company_to_lead(company_id: str, body: ResearchIn):
 # ---------- 概览 ----------
 
 @app.get('/api/overview')
-def get_overview(days: int = Query(30, ge=0, le=3650)):
-    return services.overview(days)
+def get_overview(request: Request, days: int = Query(30, ge=0, le=3650)):
+    return services.overview(days, request.state.user)
 
 
 # ---------- 线索 ----------

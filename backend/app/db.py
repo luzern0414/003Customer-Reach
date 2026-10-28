@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (JSON, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event,
-                        select)
+                        inspect, select, text)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import DATABASE_URL, DEFAULT_SETTINGS
@@ -41,9 +41,32 @@ class Setting(Base):
     value: Mapped[dict] = mapped_column(JSON)
 
 
+class User(Base):
+    """登录账号。quota 为可发起研究的次数，NULL 表示不限（管理员）。"""
+    __tablename__ = 'users'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    username: Mapped[str] = mapped_column(String(32), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    is_admin: Mapped[int] = mapped_column(Integer, default=0)
+    quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    used: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    last_login_at: Mapped[str] = mapped_column(String(32), default='')
+
+
+class UserSession(Base):
+    """登录会话。只保存令牌的 SHA-256，令牌本身只在 Cookie 中。"""
+    __tablename__ = 'user_sessions'
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    created_at: Mapped[str] = mapped_column(String(32), default=now)
+    expires_at: Mapped[str] = mapped_column(String(32))
+
+
 class Conversation(Base):
     __tablename__ = 'conversations'
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str | None] = mapped_column(String(32), index=True)
     title: Mapped[str] = mapped_column(String(200), default='新研究')
     created_at: Mapped[str] = mapped_column(String(32), default=now)
     updated_at: Mapped[str] = mapped_column(String(32), default=now)
@@ -69,6 +92,7 @@ class Attachment(Base):
     path: Mapped[str] = mapped_column(String(500))
     text: Mapped[str] = mapped_column(Text, default='')
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    user_id: Mapped[str | None] = mapped_column(String(32), index=True)
     created_at: Mapped[str] = mapped_column(String(32), default=now)
 
 
@@ -285,6 +309,12 @@ class DiscoveredSite(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    # create_all 不会给已有表加列：补上后续新增的列
+    for table in ('conversations', 'attachments'):
+        if 'user_id' not in {c['name'] for c in inspect(engine).get_columns(table)}:
+            with engine.begin() as connection:
+                connection.execute(text(f'ALTER TABLE {table} ADD COLUMN user_id VARCHAR(32)'))
+                connection.execute(text(f'CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)'))
 
 
 def get_settings() -> dict:

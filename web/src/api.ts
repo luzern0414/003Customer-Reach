@@ -1,5 +1,9 @@
 import { ElMessage } from 'element-plus'
 
+let onUnauthorized: () => void = () => {}
+/** 登录失效时的处理（main.ts 注入：清空账号并跳转登录页）。 */
+export function setUnauthorizedHandler(handler: () => void) { onUnauthorized = handler }
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message)
@@ -17,13 +21,17 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
       body: body === undefined ? undefined : form ? body : JSON.stringify(body),
     })
     const data = response.status === 204 ? null : await response.json().catch(() => null)
+    if (response.status === 401 && !path.startsWith('/auth/')) {
+      onUnauthorized()
+      throw new ApiError('请先登录', 401)
+    }
     if (!response.ok) {
       const detail = data?.detail
       throw new ApiError(typeof detail === 'string' ? detail : '请求失败，请稍后重试', response.status)
     }
     return data as T
   } catch (error) {
-    if (notify && !(error instanceof DOMException && error.name === 'AbortError')) {
+    if (notify && !(error instanceof ApiError && error.status === 401) && !(error instanceof DOMException && error.name === 'AbortError')) {
       ElMessage.error(error instanceof ApiError ? error.message : '无法连接服务，请确认后端已启动')
     }
     throw error

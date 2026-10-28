@@ -22,6 +22,12 @@ for _path in (DATA, CRAWL_OUT, UPLOADS):
 DATABASE_URL = os.getenv('DEALRADAR_DATABASE_URL', 'sqlite:///' + (DATA / 'dealradar.db').as_posix())
 MODEL_NAME = os.getenv('DEALRADAR_MODEL', 'gpt-6-luna')
 
+# 账号：管理员不限次数；注册用户默认可发起 DEFAULT_QUOTA 次研究。
+ADMIN_USERNAME = os.getenv('DEALRADAR_ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = os.getenv('DEALRADAR_ADMIN_PASSWORD', 'admin')
+DEFAULT_QUOTA = int(os.getenv('DEALRADAR_DEFAULT_QUOTA', '5'))
+SESSION_DAYS = 7
+
 # 设置页可修改的默认值；数据库只保存与默认值不同的键。
 DEFAULT_SETTINGS = {
     'company_name': '',

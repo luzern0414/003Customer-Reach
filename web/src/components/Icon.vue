@@ -3,6 +3,9 @@
 const props = withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
 
 const PATHS: Record<string, string> = {
+  lock: 'M6 11h12v10H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3M12 15v2',
+  logout: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10',
+  ticket: 'M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4zM14 7v10',
   radar: 'M12 3a9 9 0 1 0 9 9M12 7a5 5 0 1 0 5 5M12 12l6.5-6.5M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2',
   overview: 'M4 20V10M10 20V4M16 20v-7M21 20H3',
   workbench: 'M4 5h16v11H9l-5 4z M8 9h8M8 12h5',

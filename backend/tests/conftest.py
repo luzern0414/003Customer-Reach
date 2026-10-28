@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest  # noqa: E402
 
+from app.auth import ensure_admin  # noqa: E402
 from app.db import init_db  # noqa: E402
 
 FIXTURES = Path(__file__).parent / 'fixtures'
@@ -20,6 +21,7 @@ FIXTURES = Path(__file__).parent / 'fixtures'
 @pytest.fixture(scope='session', autouse=True)
 def database():
     init_db()
+    ensure_admin()
 
 
 @pytest.fixture

@@ -99,7 +99,7 @@ def test_score_prefers_active_recent():
 def test_api_conversation_lead_flow(monkeypatch, ccgp_text):
     started = []
     monkeypatch.setattr('app.runner.start', started.append)
-    client = TestClient(app)
+    client = signed_in()
     conversation = client.post('/api/conversations').json()
     sent = client.post(f'/api/conversations/{conversation["id"]}/messages', json={'content': '找防火墙买家'})
     assert sent.status_code == 202 and started == [sent.json()['job']['id']]
@@ -162,7 +162,7 @@ def test_crawl_errors_are_readable():
 
 
 def test_overview_counts_and_shares():
-    client = TestClient(app)
+    client = signed_in()
     data = client.get('/api/overview', params={'days': 30}).json()
     assert data['kpis']['new_leads'] >= 1 and data['kpis']['notices'] >= 1
     assert data['trend'] and {'date', 'leads', 'notices'} <= set(data['trend'][0])
@@ -171,13 +171,13 @@ def test_overview_counts_and_shares():
 
 
 def test_overview_previous_period():
-    client = TestClient(app)
+    client = signed_in()
     assert client.get('/api/overview', params={'days': 30}).json()['previous']['new_leads'] == 0
     assert client.get('/api/overview', params={'days': 0}).json()['previous'] == {}
 
 
 def test_custom_sites_are_validated_and_merged():
-    client = TestClient(app)
+    client = signed_in()
     bad = client.post('/api/sources/sites', json={'name': '某站', 'mode': 'template', 'template': 'https://x.com/s'})
     assert bad.status_code == 400 and '{q}' in bad.json()['detail']
     assert client.post('/api/sources/sites', json={'name': '某站', 'mode': 'site_search', 'domain': 'not a domain'}).status_code == 400
@@ -197,7 +197,7 @@ def test_custom_sites_are_validated_and_merged():
 
 def test_job_report_summarises_saved_results(ccgp_text):
     from app.db import Job, Session
-    client = TestClient(app)
+    client = signed_in()
     conversation = client.post('/api/conversations').json()
     with Session.begin() as db:
         job = Job(conversation_id=conversation['id'], message_id='m', mode='find_buyers', status='completed',
@@ -225,7 +225,7 @@ def test_anonymous_buyers_are_rejected():
 def test_search_rounds_page_then_expand():
     from app.db import Job, Session
     from app.research.pipeline import Run
-    client = TestClient(app)
+    client = signed_in()
     conversation = client.post('/api/conversations').json()
     with Session.begin() as db:
         job = Job(conversation_id=conversation['id'], message_id='m', mode='find_buyers',
@@ -247,10 +247,72 @@ def test_discovered_sites_offer_ready_config():
     store.discover('www.zsjypt.cn', '中山市公共资源交易平台', 'https://www.zsjypt.cn/artical/53/1')
     store.discover('www.zsjypt.cn', '中山市公共资源交易平台', 'https://www.zsjypt.cn/artical/53/1', adopted=1)
     store.discover('www.ccgp.gov.cn', '政府采购网', 'https://www.ccgp.gov.cn/cggg/zygg/a.htm')
-    client = TestClient(app)
+    client = signed_in()
     found = client.get('/api/discovered-sources').json()
     assert [f['domain'] for f in found] == ['www.zsjypt.cn']
     assert found[0]['hits'] == 1 and found[0]['adopted'] == 1
     site_id = client.post('/api/sources/sites', json=found[0]['config']).json()['id']
     assert client.get('/api/discovered-sources').json() == []
     client.delete(f'/api/sources/sites/{site_id}')
+
+
+def signed_in(username: str = 'admin', password: str = 'admin') -> TestClient:
+    client = TestClient(app)
+    assert client.post('/api/auth/login', json={'username': username, 'password': password}).status_code == 200
+    return client
+
+
+def test_auth_quota_and_isolation(monkeypatch):
+    from app import runner
+    monkeypatch.setattr(runner, 'start', lambda job_id: None)
+    anonymous = TestClient(app)
+    assert anonymous.get('/api/conversations').status_code == 401
+    assert anonymous.post('/api/auth/login', json={'username': 'admin', 'password': 'wrong'}).json()['detail'] == '账号或密码错误'
+    assert anonymous.post('/api/auth/register', json={'username': 'ab', 'password': '123456'}).status_code == 400
+    user = TestClient(app)
+    me = user.post('/api/auth/register', json={'username': 'trial_user', 'password': 'secret1'}).json()
+    assert me['remaining'] == 5 and not me['is_admin']
+    assert user.post('/api/auth/register', json={'username': 'trial_user', 'password': 'secret1'}).status_code == 409
+    assert user.get('/api/settings').status_code == 403 and user.get('/api/sources').status_code == 403
+    for i in range(5):
+        conversation = user.post('/api/conversations').json()
+        assert user.post(f'/api/conversations/{conversation["id"]}/messages', json={'content': f'找买家{i}'}).status_code == 202
+    blocked = user.post(f'/api/conversations/{user.post("/api/conversations").json()["id"]}/messages', json={'content': '再找'})
+    assert blocked.status_code == 403 and blocked.json()['detail'] == '使用次数已用完'
+    assert user.get('/api/auth/me').json()['remaining'] == 0
+    # 其他用户看不到这些对话；管理员不限次数
+    admin = signed_in()
+    assert admin.get('/api/auth/me').json()['unlimited'] is True
+    other = TestClient(app)
+    other.post('/api/auth/register', json={'username': 'other_user', 'password': 'secret2'})
+    assert other.get('/api/conversations').json() == []
+    assert other.get(f'/api/conversations/{conversation["id"]}').status_code == 404
+    user.post('/api/auth/logout')
+    assert user.get('/api/conversations').status_code == 401
+
+
+
+def test_auth_hardening(monkeypatch):
+    from app import auth
+    monkeypatch.setattr(auth, '_REGISTRATIONS', {})
+    monkeypatch.setattr(auth, '_FAILURES', {})
+    owner, stranger = TestClient(app), TestClient(app)
+    owner.post('/api/auth/register', json={'username': 'owner_user', 'password': 'secret3'})
+    stranger.post('/api/auth/register', json={'username': 'stranger_user', 'password': 'secret4'})
+    # 附件只对上传者可见
+    uploaded = owner.post('/api/attachments', files={'file': ('需求.txt', '采购 UPS 电源'.encode(), 'text/plain')})
+    assert uploaded.status_code == 200
+    assert owner.get(f'/api/attachments/{uploaded.json()["id"]}').status_code == 200
+    assert stranger.get(f'/api/attachments/{uploaded.json()["id"]}').status_code == 404
+    # 安全响应头
+    response = owner.get('/api/health')
+    assert response.headers['X-Frame-Options'] == 'DENY' and response.headers['X-Content-Type-Options'] == 'nosniff'
+    # 连续失败 5 次后锁定，并提示剩余时间
+    for _ in range(5):
+        assert stranger.post('/api/auth/login', json={'username': 'owner_user', 'password': 'bad'}).status_code == 401
+    locked = stranger.post('/api/auth/login', json={'username': 'owner_user', 'password': 'secret3'})
+    assert locked.status_code == 429 and '分钟后再试' in locked.json()['detail']
+    # 同一来源注册频率受限
+    for i in range(3):
+        TestClient(app).post('/api/auth/register', json={'username': f'bulk_user{i}', 'password': 'secret5'})
+    assert TestClient(app).post('/api/auth/register', json={'username': 'bulk_user9', 'password': 'secret5'}).status_code == 429
