@@ -20,8 +20,8 @@ from ..db import (Attachment, Company, Conversation, Job, JobCompany, Knowledge,
                   NoticeParty, Session, SiteStat, Source, get_settings, now)
 from ..events import emit
 from ..sites import SITES, Site, domain_of, enabled, get_site, known_domain, regional_sites, site_of, source_tier
-from . import store
-from .schemas import CompanyExtract, Identity, Keywords, ListResult, NoticeExtract, Plan
+from . import quality, store
+from .schemas import CompanyExtract, Identity, Keywords, ListResult, ListRow, NoticeExtract, Plan
 from .verify import company_name, norm
 
 log = logging.getLogger('dealradar.pipeline')
@@ -45,6 +45,16 @@ def _title_key(title: str) -> str:
 _NON_MAINLAND = re.compile(r'台湾|台灣|臺灣|香港|澳门|澳門')
 # 大陆公告不会出现的繁体字；采购单位或标题中出现两个以上视为港澳台公告
 _TRADITIONAL = set('醫療業總處採購電氣會議與為國際東灣區縣廠構體備標產務資團機關費設計劃辦')
+
+
+SCREEN_BATCH = 20
+
+
+def _excerpt(flat: str, title: str, width: int = 120) -> str:
+    """链接标题在列表页正文（已去空白）中的那一段，含日期、采购人等；找不到时为空。"""
+    probe = re.sub(r'\s+', '', title)[:14]
+    at = flat.find(probe) if len(probe) >= 6 else -1
+    return flat[max(0, at - 20):at + width] if at >= 0 else ''
 
 
 def _outside_mainland(title: str, buyer: str, region: str) -> bool:
@@ -176,7 +186,19 @@ class Run:
             llm.USAGE.reset(token)
             for task_id in filter(None, self.pending_cancel):
                 await crawl.cancel(task_id)
-        return 'partial' if self.problems else 'completed'
+        quality.rescore_leads()
+        return self.final_status()
+
+    def final_status(self) -> str:
+        """有结果、没有读取以外的问题、未读到的不超过已读篇数的四分之一时记为完成，否则为部分完成；问题照常列在报告里。"""
+        read = list(self.state.get('read', {}).values())
+        failed = read.count('failed')
+        ok = sum(1 for state in read if state in ('saved', 'reused'))
+        others = [p for p in self.problems if '公告未读取' not in p]
+        with Session() as db:
+            found = db.scalar(select(func.count()).select_from(JobCompany).where(
+                JobCompany.job_id == self.job_id, JobCompany.role.in_(('buyer', 'target'))))
+        return 'completed' if found and not others and failed * 4 <= ok else 'partial'
 
     # ---------- 阶段 ----------
 
@@ -350,32 +372,55 @@ class Run:
                 screened.append(key)
                 continue
             pending.append((key, item, list_site))
+        # 多份列表合批判断：同名公告只判断一次，每批最多 20 条链接，同时最多 4 批；
+        # 每条链接带上它在列表页正文里的那一段，供模型读出采购人、公告类型、日期与地区。
+        texts, groups, order = {}, {}, []
+        for key, item, _ in pending:
+            if item['source_id'] not in texts:
+                with Session() as db:
+                    texts[item['source_id']] = re.sub(r'\s+', '', db.get(Source, item['source_id']).text or '')
+            for index, link in enumerate(item['links']):
+                title_key = _title_key(link['text']) or link['url']
+                if title_key not in groups:
+                    groups[title_key] = []
+                    order.append((title_key, link['text'], _excerpt(texts[item['source_id']], link['text'])))
+                groups[title_key].append((key, index))
+        verdicts: dict[tuple, ListRow] = {}
         slots = asyncio.Semaphore(4)
 
-        async def judge(item: dict, list_site: Site) -> list:
-            """判断一个列表中哪些链接相关：每批最多 25 条链接，单批失败只记为未完成项。"""
-            with Session() as db:
-                text = db.get(Source, item['source_id']).text
-            rows = []
-            async with slots, self.tool('screen', f'筛选{list_site.name}检索结果', item['site']) as info:
-                for start in range(0, len(item['links']), 25):
-                    batch = item['links'][start:start + 25]
-                    links = '\n'.join(f'[{i}] {l["text"]}' for i, l in enumerate(batch))
-                    try:
-                        result = await llm.structured(ListResult, f'研究目标：{goal}\n\n公告链接：\n{links}\n\n列表页正文：\n{text[:10000]}\n\n'
-                                                      '逐条判断链接是否与研究目标相关，并从列表正文读出采购人、公告类型、日期、地区。')
-                    except ValueError as exc:
-                        self.problems.append(f'{list_site.name}：部分检索结果未能筛选（{exc}）')
-                        continue
-                    rows += [row.model_copy(update={'link': row.link + start}) for row in result.rows if 0 <= row.link < len(batch)]
-                info['count'] = sum(1 for row in rows if row.relevant)
-            return rows
+        async def judge(number: int, batch: list, part: str = '') -> None:
+            lines = '\n'.join(f'[{i}] {title}' + (f'\n    列表摘录：{excerpt}' if excerpt else '') for i, (_, title, excerpt) in enumerate(batch))
+            failure = None
+            async with slots, self.tool('screen', f'筛选第 {number} 批检索结果{part}（{len(batch)} 条）') as info:
+                try:
+                    result = await llm.structured(ListResult, f'研究目标：{goal}\n\n公告链接：\n{lines}\n\n'
+                                                  '逐条判断链接是否与研究目标相关，并从标题与列表摘录读出采购人、公告类型、日期、地区。')
+                except ValueError as exc:
+                    failure = exc
+                    info['status'] = 'failed'
+                else:
+                    for row in result.rows:
+                        if 0 <= row.link < len(batch):
+                            for member in groups[batch[row.link][0]]:
+                                verdicts[member] = row
+                    info['count'] = sum(1 for row in result.rows if row.relevant)
+            if failure is None:
+                return
+            # 输出超长：把这一批对半拆开各判断一次（在释放并发名额之后再拆，避免互相等待）
+            if not part and len(batch) > 1:
+                half = len(batch) // 2
+                await asyncio.gather(judge(number, batch[:half], '（拆分 1/2）'), judge(number, batch[half:], '（拆分 2/2）'))
+            else:
+                self.problems.append(f'第 {number} 批检索结果{part}未能筛选（{failure}）')
 
-        # 同时判断多个列表，结果按原顺序合并去重
-        results = await asyncio.gather(*(judge(item, site) for _, item, site in pending), return_exceptions=True)
+        batches = [order[i:i + SCREEN_BATCH] for i in range(0, len(order), SCREEN_BATCH)]
+        results = await asyncio.gather(*(judge(n + 1, batch) for n, batch in enumerate(batches)), return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+        results = [[verdicts[(key, i)].model_copy(update={'link': i}) for i in range(len(item['links'])) if (key, i) in verdicts]
+                   for key, item, _ in pending]
         for (key, item, list_site), rows in zip(pending, results):
-            if isinstance(rows, BaseException):
-                raise rows
             for row in rows:
                 if not row.relevant or not 0 <= row.link < len(item['links']):
                     continue
@@ -480,8 +525,7 @@ class Run:
             store.link_job(self.job_id, company_id, 'related')
         if self.plan.mode == 'find_buyers' and buyer:
             store.link_job(self.job_id, buyer, 'buyer')
-            store.upsert_lead(buyer, info[0], self.conversation_id, store.score_lead(info[1], info[3], info[4]),
-                              f'{KIND_LABELS.get(info[1], "公告")}：{info[2][:60]}')
+            store.upsert_lead(buyer, info[0], self.conversation_id, f'{KIND_LABELS.get(info[1], "公告")}：{info[2][:60]}')
         emit(self.job_id, 'result', {'company_id': buyer, 'notice_id': info[0]})
         return True
 
@@ -524,10 +568,8 @@ class Run:
         buyer = saved['buyer_id']
         if plan.mode == 'find_buyers' and buyer:
             store.link_job(self.job_id, buyer, 'buyer')
-            published = extract.published_on
             reason = f'{KIND_LABELS.get(extract.kind, "公告")}：{extract.title[:60]}'
-            store.upsert_lead(buyer, saved['notice_id'], self.conversation_id,
-                              store.score_lead(extract.kind, published[:10], extract.deadline), reason)
+            store.upsert_lead(buyer, saved['notice_id'], self.conversation_id, reason)
         if 'first_result_ms' not in self.metrics:
             self.metrics['first_result_ms'] = self.metrics.get('elapsed_ms', 0) + round((time.monotonic() - self.started) * 1000)
         emit(self.job_id, 'result', {'company_id': buyer or self.state.get('target_id'), 'notice_id': saved['notice_id']})

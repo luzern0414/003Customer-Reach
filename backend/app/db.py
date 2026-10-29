@@ -187,6 +187,7 @@ class Notice(Base):
     region: Mapped[str] = mapped_column(String(100), default='')
     published_on: Mapped[str] = mapped_column(String(16), default='', index=True)
     deadline: Mapped[str] = mapped_column(String(32), default='')
+    deadline_at: Mapped[str] = mapped_column(String(16), default='', index=True)  # 规范化的截止时间（北京时间）
     budget: Mapped[float | None] = mapped_column(Float)
     amount: Mapped[float | None] = mapped_column(Float)
     items: Mapped[str] = mapped_column(Text, default='')
@@ -315,6 +316,10 @@ def init_db() -> None:
             with engine.begin() as connection:
                 connection.execute(text(f'ALTER TABLE {table} ADD COLUMN user_id VARCHAR(32)'))
                 connection.execute(text(f'CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)'))
+    if 'deadline_at' not in {c['name'] for c in inspect(engine).get_columns('notices')}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE notices ADD COLUMN deadline_at VARCHAR(16) DEFAULT ''"))
+            connection.execute(text('CREATE INDEX IF NOT EXISTS ix_notices_deadline_at ON notices (deadline_at)'))
 
 
 def get_settings() -> dict:

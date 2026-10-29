@@ -18,6 +18,7 @@ from .db import (Attachment, Company, Conversation, CustomSite, DiscoveredSite, 
                  Message, Notice, NoticeParty, Session, SiteStat, Source, get_settings, now)
 from .documents import parse_document
 from .research.pipeline import KIND_LABELS
+from .research.quality import days_left, score_notice
 from .research.schemas import MatchAnalysis
 from .sites import all_sites, from_custom, known_domain
 
@@ -285,7 +286,8 @@ def add_lead_for_company(company_id: str, conversation_id: str = '') -> dict:
         if not lead:
             notice = db.scalar(select(NoticeParty.notice_id).where(NoticeParty.company_id == company_id,
                                                                    NoticeParty.role == 'buyer'))
-            lead = Lead(company_id=company_id, notice_id=notice, conversation_id=conversation_id or None)
+            lead = Lead(company_id=company_id, notice_id=notice, conversation_id=conversation_id or None,
+                        score=score_notice(db.get(Notice, notice)) if notice else 10)
             db.add(lead)
         lead.archived, lead.updated_at = 0, now()
         db.flush()
@@ -294,8 +296,12 @@ def add_lead_for_company(company_id: str, conversation_id: str = '') -> dict:
 
 # ---------- 线索 ----------
 
-def _lead_query(q: str, status: str, owner: str, start: str, end: str):
+def _lead_query(q: str, status: str, owner: str, start: str, end: str, open_only: bool = False):
     query = select(Lead, Company).join(Company, Company.id == Lead.company_id).where(Lead.archived == 0)
+    if open_only:
+        # 只看可投标：没有截止时间，或截止日期不早于今天
+        query = query.outerjoin(Notice, Notice.id == Lead.notice_id).where(
+            or_(Notice.id.is_(None), Notice.deadline_at == '', Notice.deadline_at >= datetime.now().date().isoformat()))
     if q:
         query = query.where(or_(Company.name.contains(q), Lead.match_reason.contains(q)))
     if owner:
@@ -309,18 +315,22 @@ def _lead_query(q: str, status: str, owner: str, start: str, end: str):
 
 def _lead_view(db, lead: Lead, company: Company) -> dict:
     notice = db.get(Notice, lead.notice_id) if lead.notice_id else None
+    left = days_left(notice.deadline_at) if notice else None
+    contact = ((notice.quotes or {}).get('contact') or {}) if notice else {}
     return {**_row(lead, 'id', 'status', 'owner', 'next_followup_at', 'tags', 'score', 'match_reason',
                    'created_at', 'updated_at'),
-            'status_label': LEAD_STATUS.get(lead.status), 'company': {'id': company.id, 'name': company.name,
-                                                                       'region': company.region},
-            'notice': {'id': notice.id, 'title': notice.title, 'kind_label': KIND_LABELS.get(notice.kind),
-                       'published_on': notice.published_on, 'deadline': notice.deadline, 'budget': notice.budget,
-                       'amount': notice.amount} if notice else None}
+            'status_label': LEAD_STATUS.get(lead.status),
+            'company': {'id': company.id, 'name': company.name, 'region': company.region, 'phone': company.phone},
+            'notice': {'id': notice.id, 'title': notice.title, 'kind_label': KIND_LABELS.get(notice.kind), 'url': notice.url,
+                       'published_on': notice.published_on, 'deadline': notice.deadline, 'deadline_at': notice.deadline_at,
+                       'days_left': left, 'expired': left is not None and left < 0, 'budget': notice.budget,
+                       'amount': notice.amount, 'items': notice.items, 'region': notice.region,
+                       'contact_person': contact.get('person', ''), 'contact_phone': contact.get('phone', '')} if notice else None}
 
 
-def leads(q='', status='', owner='', start='', end='', page=1, size=20) -> dict:
+def leads(q='', status='', owner='', start='', end='', page=1, size=20, open_only=False) -> dict:
     with Session() as db:
-        base, query = _lead_query(q, status, owner, start, end)
+        base, query = _lead_query(q, status, owner, start, end, open_only)
         counts = _status_counts(db, base)
         total = db.scalar(select(func.count()).select_from(query.subquery()))
         rows = db.execute(query.order_by(Lead.score.desc(), Lead.updated_at.desc())
@@ -463,6 +473,9 @@ def _workbook(title: str, header: list[str], rows: list[list]) -> bytes:
         cell.alignment = Alignment(horizontal='center', vertical='center')
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
+            # 防公式注入：以 = + - @ 或制表、回车开头的文字前加单引号
+            if isinstance(cell.value, str) and cell.value[:1] in ('=', '+', '-', '@', '\t', '\r'):
+                cell.value = "'" + cell.value
             cell.font = Font(name=font, size=12)
             cell.alignment = Alignment(vertical='center', wrap_text=True)
     for column in sheet.columns:
@@ -475,12 +488,18 @@ def _workbook(title: str, header: list[str], rows: list[list]) -> bytes:
 
 def export_leads(**filters) -> bytes:
     data = leads(**filters, page=1, size=5000)
-    rows = [[item['company']['name'], item['status_label'], item['score'], item['owner'], item['next_followup_at'],
-             (item['notice'] or {}).get('title', ''), (item['notice'] or {}).get('published_on', ''),
-             (item['notice'] or {}).get('budget') or (item['notice'] or {}).get('amount') or '',
-             item['match_reason'], item['created_at'][:10]] for item in data['items']]
-    return _workbook('获客线索', ['客户', '状态', '评分', '负责人', '下次跟进', '采购公告', '发布日期', '金额（元）',
-                                 '线索依据', '创建日期'], rows)
+    rows = []
+    for item in data['items']:
+        notice = item['notice'] or {}
+        money = notice.get('budget') or notice.get('amount')
+        left = notice.get('days_left')
+        rows.append([item['company']['name'], item['company']['region'] or notice.get('region', ''), item['status_label'], item['score'],
+                     notice.get('items', ''), round(money / 10000, 2) if money else '', notice.get('published_on', ''),
+                     notice.get('deadline_at', ''), '' if left is None else ('已截止' if left < 0 else left),
+                     notice.get('contact_person', ''), notice.get('contact_phone', '') or item['company']['phone'],
+                     item['owner'], item['next_followup_at'], notice.get('title', ''), notice.get('url', ''), item['created_at'][:10]])
+    return _workbook('获客线索', ['客户', '地区', '状态', '评分', '采购标的', '预算（万元）', '公告日期', '投标截止', '剩余天数',
+                                 '联系人', '联系电话', '负责人', '下次跟进', '采购公告', '原文链接', '创建日期'], rows)
 
 
 def export_company(company_id: str) -> tuple[str, bytes]:
@@ -635,7 +654,9 @@ def job_report(job_id: str) -> dict:
         plan, metrics = job.plan or {}, job.metrics or {}
         names = {s.id: s.name for s in all_sites().values()}
         sources = select(Source.id).where(Source.job_id == job_id)
-        notices = list(db.scalars(select(Notice).where(Notice.source_id.in_(sources))))
+        # 本次新读的公告 + 复用的已读公告
+        reused = [url for url, state in (plan.get('read') or {}).items() if state == 'reused']
+        notices = list(db.scalars(select(Notice).where(or_(Notice.source_id.in_(sources), Notice.url.in_(reused)))))
         rows = db.execute(select(Company, JobCompany.role).join(JobCompany, JobCompany.company_id == Company.id)
                           .where(JobCompany.job_id == job_id)).all()
         buyers = [c for c, role in rows if role in ('buyer', 'target')]

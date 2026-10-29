@@ -52,7 +52,13 @@ powershell -File stop.ps1
 
 开发：`backend` 下 `.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000 --reload`；`web` 下 `npm run dev`（/api 代理到 8000）。
 
-测试：`backend` 下 `.venv\Scripts\python.exe -m pytest tests -q`。
+测试：`backend` 下 `.venv\Scripts\python.exe -m pytest tests -q`；端到端测试先启动服务，再在 `web` 下 `npm run e2e`（Playwright 驱动本机 Edge，默认 `http://127.0.0.1:8000`，账号取 `E2E_USER` / `E2E_PASSWORD`，未设置时用管理员默认账号）。
+
+### 线索评分与截止时间
+
+- 评分 = 公告类型基础分（招标 70、意向与更正 65、候选 55、中标 50、合同 45）+ 投标截止剩余天数（7 天以上 +15、3–7 天 +10、3 天内 +5、已截止 −20）+ 预算（100 万以上 +10、10 万以上 +5）+ 有联系人 +5 − 公告每满 30 天 5 分，结果在 10–100；服务启动与每次研究结束时重算。
+- 公告的截止时间另存规范化的 `deadline_at`（北京时间）；线索列表默认只看可投标（没有截止时间或尚未截止）。
+- 服务启动时回填存量数据：截止时间、采购方地区与公告中的联系电话和地址、名称只差“本级”等后缀的重复单位合并（合并前把数据库复制到 `data/app/backup/`，保留 3 份）。
 
 ## 结构
 

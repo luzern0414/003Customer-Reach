@@ -40,7 +40,9 @@ async def sse(job_id: str, after: int, is_disconnected) -> AsyncIterator[str]:
         batch = events_after(job_id, cursor)
         for item in batch:
             cursor = item.id
-            yield f'id: {item.id}\nevent: {item.type}\ndata: {json.dumps(item.data, ensure_ascii=False)}\n\n'
+            # ts 为事件发生时间：刷新页面补发历史事件时，前端按它接着计时，不从收到时刻重算
+            data = {**(item.data or {}), 'ts': item.created_at}
+            yield f'id: {item.id}\nevent: {item.type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n'
         if batch:
             continue
         if _job_status(job_id) in TERMINAL:

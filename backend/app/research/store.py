@@ -1,12 +1,12 @@
 """把核验通过的抽取结果写入数据库。未通过原文核验的字段一律不保存。"""
 import re
-from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from ..crawl import Page
 from ..db import Company, DiscoveredSite, Fact, JobCompany, Lead, Notice, NoticeParty, Session, SiteStat, Source, now
+from .quality import fill_buyer, parse_deadline, score_notice
 from .schemas import CompanyExtract, NoticeExtract, Party
 from .verify import company_name, grounded, grounded_value, plausible_company
 
@@ -71,6 +71,7 @@ def save_notice(extract: NoticeExtract, source_id: str, page: Page, fallback: di
         notice.project_code = code[:100]
         notice.published_on = _date(extract.published_on) or _date(fallback.get('published_on', ''))
         notice.deadline = extract.deadline[:32] if grounded(extract.deadline, text) else ''
+        notice.deadline_at = parse_deadline(notice.deadline)
         notice.region = extract.region or fallback.get('region', '')
         notice.budget = extract.budget if extract.budget and grounded(extract.budget_quote, text) else None
         notice.amount = extract.amount if extract.amount and grounded(extract.amount_quote, text) else None
@@ -84,6 +85,8 @@ def save_notice(extract: NoticeExtract, source_id: str, page: Page, fallback: di
         notice.quotes = quotes
         db.flush()
         buyer = _party(db, notice, extract.buyer, 'buyer', text)
+        if buyer:
+            fill_buyer(db, buyer, notice)
         agent = _party(db, notice, extract.agent, 'agent', text)
         winners = [c for c in (_party(db, notice, p, 'winner', text) for p in extract.winners) if c]
         candidates = [c for c in (_party(db, notice, p, 'candidate', text) for p in extract.candidates) if c]
@@ -128,18 +131,11 @@ def link_job(job_id: str, company_id: str, role: str) -> None:
             row.role = role
 
 
-def score_lead(kind: str, published_on: str, deadline: str) -> int:
-    """正在招标/意向最高；近 90 天的中标、成交说明有持续采购；越新越高。"""
-    base = {'intent': 90, 'tender': 85, 'change': 80, 'candidate': 65, 'award': 60, 'contract': 55}.get(kind, 40)
-    try:
-        age = (date.today() - date.fromisoformat(published_on)).days
-    except ValueError:
-        age = 365
-    return max(10, min(100, base - age // 30 * 5))
-
-
-def upsert_lead(company_id: str, notice_id: str, conversation_id: str, score: int, reason: str) -> str:
+def upsert_lead(company_id: str, notice_id: str, conversation_id: str, reason: str, score: int | None = None) -> str:
+    """一家企业一条线索：分数按公告计算（见 quality.score_lead），保留分数最高的公告作为依据。"""
     with Session.begin() as db:
+        if score is None:
+            score = score_notice(db.get(Notice, notice_id))
         lead = db.scalar(select(Lead).where(Lead.company_id == company_id))
         if not lead:
             lead = Lead(company_id=company_id, conversation_id=conversation_id, score=0)

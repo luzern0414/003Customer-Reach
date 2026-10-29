@@ -32,7 +32,8 @@ web/ (Vue 3 + Element Plus)  →  backend/app (FastAPI，单进程)
 4. **数据源**：内置站点在 `sites.py`（文件头注释记录实测结论与日期）；LuzCrawl 实测通过的采购入口直接读 `Luz-Crawl/opencli/catalog.json`（`luzcrawl_sites()`，省级与城市平台按需求地区加入）；用户在“数据源”页面新增的站点存于 `custom_sites` 表，`all_sites()` 合并三者，管线只通过它取站点。新增内置站点前先用 LuzCrawl 实测列表页与详情页正文（是否有详情链接、正文是否完整、是否打码），或用 `POST /api/sources/test` 验证。
 5. 模型服务只支持 `json_schema` / `json_mode` 结构化输出（强制 tool_choice 会被拒绝）。
 6. **账号**：除 `/api/auth/*`、`/api/health` 外的接口都要求登录（`auth.py` + `main.py` 中间件）；配置类接口仅管理员可用；对话、任务、附件在服务端核对归属；研究次数在 `services.submit` 的同一事务内用条件更新扣减。
-7. 不提交 `config/apikey.txt`、`data/`。文档用中文；代码注释风格与周围代码一致。
+7. **数据质量**：线索评分、截止时间解析、存量回填与重复单位合并集中在 `research/quality.py`，都必须可重复执行；采购方的地区、电话、地址只取自核验过的公告原文并写 `facts` 出处。
+8. 不提交 `config/apikey.txt`、`data/`。文档用中文；代码注释风格与周围代码一致。
 
 ## 常用命令
 
@@ -43,6 +44,7 @@ cd backend; .venv\Scripts\python.exe -m pytest tests -q
 # 前端
 cd web; npm run dev        # /api 代理到 8000
 npm run build
+npm run e2e                # Playwright + 本机 Edge，先启动服务
 # 一键启动 / 停止（生产方式）
 powershell -File start.ps1 ; powershell -File stop.ps1
 # 采集工具状态

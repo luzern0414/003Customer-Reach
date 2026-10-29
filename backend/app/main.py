@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, Field
 
 from . import auth, crawl, llm, runner, services
+from .research import quality
 from .config import WEB_DIST
 from .db import get_settings, init_db, save_settings
 from .documents import DocumentError
@@ -23,6 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name
 async def lifespan(_: FastAPI):
     init_db()
     auth.ensure_admin()
+    quality.backfill()
     runner.recover()
     yield
 
@@ -294,13 +296,13 @@ class AnalysisIn(BaseModel):
 
 @app.get('/api/leads')
 def list_leads(q: str = '', status: str = '', owner: str = '', start: str = '', end: str = '',
-               page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
-    return services.leads(q, status, owner, start, end, page, page_size)
+               page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), open: bool = False):
+    return services.leads(q, status, owner, start, end, page, page_size, open_only=open)
 
 
 @app.get('/api/leads/export')
-def export_leads(q: str = '', status: str = '', owner: str = '', start: str = '', end: str = ''):
-    content = services.export_leads(q=q, status=status, owner=owner, start=start, end=end)
+def export_leads(q: str = '', status: str = '', owner: str = '', start: str = '', end: str = '', open: bool = False):
+    content = services.export_leads(q=q, status=status, owner=owner, start=start, end=end, open_only=open)
     return _xlsx(f'获客线索_{time.strftime("%Y%m%d")}', content)
 
 

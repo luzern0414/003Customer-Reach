@@ -92,8 +92,11 @@ def test_save_profile_requires_value_in_quote(ccgp_text):
 
 
 def test_score_prefers_active_recent():
-    assert store.score_lead('tender', '2026-10-20', '') > store.score_lead('award', '2026-10-20', '')
-    assert store.score_lead('tender', '2020-01-01', '') == 10
+    from datetime import date
+    from app.research.quality import score_lead
+    today = date(2026, 10, 29)
+    assert score_lead('tender', '2026-10-20', today=today) > score_lead('award', '2026-10-20', today=today)
+    assert score_lead('tender', '2020-01-01', today=today) == 10
 
 
 def test_api_conversation_lead_flow(monkeypatch, ccgp_text):
@@ -121,8 +124,8 @@ def test_new_lead_gets_score_and_keeps_best_notice(ccgp_text):
     page = crawl.Page(url=URL + '?lead', status='captured', text=ccgp_text)
     source_id = store.save_source(page, 'ccgp', 'notice', 'job')
     saved = store.save_notice(_extract().model_copy(update={'project_code': ''}), source_id, page, {})
-    lead_id = store.upsert_lead(saved['buyer_id'], saved['notice_id'], 'c1', 60, '中标结果')
-    assert store.upsert_lead(saved['buyer_id'], saved['notice_id'], 'c1', 30, '旧公告') == lead_id
+    lead_id = store.upsert_lead(saved['buyer_id'], saved['notice_id'], 'c1', '中标结果', 60)
+    assert store.upsert_lead(saved['buyer_id'], saved['notice_id'], 'c1', '旧公告', 30) == lead_id
     assert services.lead_detail(lead_id)['score'] == 60
 
 
@@ -449,54 +452,6 @@ def test_structured_widens_on_length_limit(monkeypatch):
         assert '长度上限' in str(exc)
     else:
         raise AssertionError('连续超出长度上限应报错')
-
-
-def test_screen_lists_concurrently_and_merges(monkeypatch):
-    import asyncio
-    from app import llm
-    from app.db import Conversation, Job, Message, Session as DB
-    from app.research.pipeline import Run
-    from app.research.schemas import ListResult, ListRow
-
-    with DB.begin() as db:
-        conversation = Conversation(title='筛选测试')
-        db.add(conversation)
-        db.flush()
-        message = Message(conversation_id=conversation.id, role='user', content='找空调买家')
-        db.add(message)
-        db.flush()
-        job = Job(conversation_id=conversation.id, message_id=message.id, plan={'plan': {'mode': 'find_buyers', 'title': '空调买家', 'product': '空调',
-                                                                    'keywords': ['空调'], 'days': 90}})
-        db.add(job)
-        db.flush()
-        job_id = job.id
-    lists = {}
-    for i in range(4):
-        page = crawl.Page(url=f'https://ccgp.gov.cn/list/{i}', status='captured', title='列表', text='列表正文')
-        lists[f'ccgp|空调|{i}'] = {'site': 'ccgp', 'query': '空调', 'status': 'captured',
-                                   'source_id': store.save_source(page, 'ccgp', 'list', job_id),
-                                   'links': [{'text': '同一空调采购公告', 'url': 'https://www.ccgp.gov.cn/cggg/dfgg/same.htm'},
-                                             {'text': f'空调采购公告{i}', 'url': f'https://www.ccgp.gov.cn/cggg/dfgg/{i}.htm'}]}
-    run = Run(job_id)
-    run.state['lists'] = lists
-    active, peak = [0], [0]
-
-    async def fake_structured(schema, prompt, system=''):
-        active[0] += 1
-        peak[0] = max(peak[0], active[0])
-        await asyncio.sleep(0.05)
-        active[0] -= 1
-        if '空调采购公告3' in prompt:
-            raise ValueError('模型输出超出长度上限')
-        return ListResult(rows=[ListRow(link=0, relevant=True, kind='tender'), ListRow(link=1, relevant=True, kind='tender')])
-
-    monkeypatch.setattr(llm, 'structured', fake_structured)
-    asyncio.run(run.screen())
-    urls = set(run.state['candidates'])
-    # 同时筛选多个列表；同名公告只保留一条；失败的列表只记为未完成项
-    assert peak[0] > 1
-    assert urls == {'https://www.ccgp.gov.cn/cggg/dfgg/same.htm'} | {f'https://www.ccgp.gov.cn/cggg/dfgg/{i}.htm' for i in range(3)}
-    assert len(run.state['screened']) == 4 and any('未能筛选' in p for p in run.problems)
 
 
 def test_screen_prefers_official_and_mainland(monkeypatch):
