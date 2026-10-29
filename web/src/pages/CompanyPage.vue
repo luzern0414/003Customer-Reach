@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import { ApiError, api, post } from '../api'
 import type { CompanyDetail, Evidence, Notice } from '../types'
 import { KIND_TONE, LEAD_STATUS, dateParts, money } from '../format'

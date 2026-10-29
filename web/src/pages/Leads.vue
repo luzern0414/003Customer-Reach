@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { api, patch, query } from '../api'
 import type { LeadItem, LeadList, LeadStatus } from '../types'
 import { LEAD_STATUS, TONE_DOT, dateParts, due, monthDay, wan } from '../format'
@@ -17,6 +18,8 @@ const q = ref('')
 // 默认先看待处理的新线索；“全部”放在最后
 const status = ref<LeadStatus | ''>(route.query.status === 'all' ? '' : ((route.query.status as LeadStatus) || 'new'))
 const owner = ref('')
+// 默认只看还能投标的线索（没有截止时间或尚未截止）
+const openOnly = ref(route.query.open !== '0')
 const range = ref<'today' | '7' | '30' | 'all' | 'custom'>('all')
 const custom = ref<[string, string] | null>(null)
 const page = ref(Number(route.query.page) || 1)
@@ -36,13 +39,13 @@ const filters = computed(() => {
   if (range.value === 'today') start = iso(new Date())
   else if (range.value === '7' || range.value === '30') start = iso(new Date(Date.now() - Number(range.value) * 86400000))
   else if (range.value === 'custom' && custom.value) [start, end] = custom.value
-  return { q: q.value.trim(), status: status.value, owner: owner.value, start, end }
+  return { q: q.value.trim(), status: status.value, owner: owner.value, start, end, open: openOnly.value ? 1 : 0 }
 })
 
 async function load() {
   loading.value = true
   error.value = false
-  router.replace({ query: { ...route.query, status: status.value || 'all', page: String(page.value), page_size: String(pageSize.value) } })
+  router.replace({ query: { ...route.query, status: status.value || 'all', open: openOnly.value ? '1' : '0', page: String(page.value), page_size: String(pageSize.value) } })
   try {
     data.value = await api<LeadList>(`/leads${query({ ...filters.value, page: page.value, page_size: pageSize.value })}`, { notify: false })
   } catch {
@@ -52,7 +55,7 @@ async function load() {
   }
 }
 watch(q, () => { window.clearTimeout(timer); timer = window.setTimeout(() => { page.value = 1; load() }, 250) })
-watch([status, owner, range, custom], () => { page.value = 1; load() })
+watch([status, owner, range, custom, openOnly], () => { page.value = 1; load() })
 watch(page, load)
 watch(pageSize, (n) => {
   try { localStorage.setItem('dr.page_size', String(n)) } catch { /* 本机存储不可用 */ }
@@ -63,9 +66,10 @@ onMounted(load)
 
 const counts = computed(() => data.value?.counts)
 const exportUrl = computed(() => `/api/leads/export${query(filters.value)}`)
-const items = computed(() => (data.value?.items || []).map((row) => ({ ...row, due: due(row.notice?.deadline) })))
+const items = computed(() => (data.value?.items || []).map((row) => ({ ...row, due: due(row.notice?.deadline_at || row.notice?.deadline) })))
 // 整页为空的列隐藏；整页取值相同的评分写在状态行
 const hasOwner = computed(() => items.value.some((r) => r.owner))
+const hasRegion = computed(() => items.value.some((r) => r.company.region))
 const hasFollowup = computed(() => items.value.some((r) => r.next_followup_at))
 const sameScore = computed(() => { const s = new Set(items.value.map((r) => r.score)); return items.value.length > 1 && s.size === 1 ? items.value[0].score : null })
 const filtered = computed(() => !!(q.value || status.value || owner.value || range.value !== 'all'))
@@ -110,6 +114,7 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
         <button type="button" class="chip" :class="{ on: !status }" data-action-id="A-302" @click="status = ''">全部<span class="count">{{ counts?.all ?? '' }}</span></button>
         <span class="grow" />
         <span v-if="sameScore !== null" class="muted small">本页评分均为 {{ sameScore }}</span>
+        <label class="open-only"><el-switch v-model="openOnly" size="small" data-action-id="A-302" />只看可投标</label>
       </div>
 
       <div v-if="error" class="error-line">无法读取线索<el-button size="small" @click="load">重试</el-button></div>
@@ -117,6 +122,9 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
         <el-table v-loading="loading && !!data" :data="items" row-key="id" :row-class-name="rowClass" class="desktop">
           <el-table-column label="客户" min-width="190" header-align="center">
             <template #default="{ row }"><RouterLink :to="`/leads/${row.id}`" class="cell-main cell-clip" :title="row.company.name" data-action-id="A-305">{{ row.company.name }}</RouterLink></template>
+          </el-table-column>
+          <el-table-column v-if="hasRegion" label="地区" width="120" align="center">
+            <template #default="{ row }"><span class="cell-clip" :title="row.company.region">{{ row.company.region || '—' }}</span></template>
           </el-table-column>
           <el-table-column label="采购内容" min-width="280" header-align="center">
             <template #default="{ row }">
@@ -149,7 +157,7 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
           </el-table-column>
           <template #empty>
             <div v-if="!loading" class="empty"><span class="icon-wrap"><Icon name="lead" :size="24" /></span>
-              <div>{{ filtered && status !== 'new' ? '没有符合条件的线索' : status === 'new' && data?.counts.all ? '没有新线索' : '还没有线索' }}</div>
+              <div>{{ !data?.counts.all && openOnly ? '没有还能投标的线索' : filtered && status !== 'new' ? '没有符合条件的线索' : status === 'new' && data?.counts.all ? '没有新线索' : '还没有线索' }}</div>
               <el-button v-if="!data?.counts.all" type="primary" @click="router.push('/workbench')"><Icon name="plus" :size="16" /><span>去找买家</span></el-button></div>
           </template>
         </el-table>
@@ -179,6 +187,7 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
 .head :deep(.el-date-editor--daterange) { --el-date-editor-width: 240px; width: 240px; flex: none; }
 .status-row { padding: 0 16px 12px; }
 .kind { margin-right: 8px; vertical-align: 1px; }
+.open-only { display: inline-flex; align-items: center; gap: 8px; margin-left: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
 .money { font-weight: 600; color: var(--ink); }
 .status-select { width: 100px; }
 .status-select :deep(.el-select__prefix) { margin-right: 2px; }

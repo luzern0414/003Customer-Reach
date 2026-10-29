@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import MarkdownRender from 'markstream-vue'
 import 'markstream-vue/index.css'
 import { api, get, post } from '../api'
-import type { Attachment, CompanyCard, Conversation, ConversationItem, Job } from '../types'
+import type { Attachment, CompanyCard, Conversation, ConversationItem, Job, ToolCall } from '../types'
 import { emptyJob, followJob, isTerminal, type JobState } from '../jobStream'
 import { configureMarkdown, displayMarkdown } from '../markdown'
 import { JOB_STATUS, LEAD_STATUS, dayGroup, duration } from '../format'
@@ -215,6 +215,13 @@ function showReport(jobId: string | null) {
   return !!job && job.mode !== 'chat' && job.mode !== '' && ['completed', 'partial'].includes(status || '')
 }
 const userMessages = computed(() => conversation.value?.messages.filter((m) => m.role === 'user') || [])
+// 进行中的步骤：最早开始的一条显示在折叠行；每一步运行中每秒更新已用时，结束后显示用时
+const running = computed(() => (live.value?.tools || []).filter((t) => t.status === 'running'))
+const failedSteps = computed(() => (live.value?.tools || []).filter((t) => ['failed', 'blocked'].includes(t.status)).length)
+function toolTime(t: ToolCall) {
+  if (t.status === 'running') return `已用 ${duration(Math.max(0, now.value - (t.startedAt || now.value)))}`
+  return t.elapsed_ms ? `用时 ${duration(t.elapsed_ms)}` : ''
+}
 const toolSummary = (j: JobState) => {
   const searches = j.tools.filter((t) => t.tool === 'search_notices').length
   const reads = j.tools.filter((t) => t.tool === 'extract_notice' && t.status === 'completed').length
@@ -287,13 +294,19 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
                   <span class="stage"><span v-if="busy" class="conv-dot run" />{{ busy ? (live.stageLabel || '准备中') : JOB_STATUS[live.status].label }}</span>
                   <span class="muted small">{{ busy ? `已用 ${duration((live.metrics.elapsed_ms || 0) + now - live.syncedAt)}` : toolSummary(live) }}<template v-if="busy && live.progress.to_read"> · 待读 {{ live.progress.to_read }} 篇</template></span>
                 </div>
-                <button v-if="!busy && live.tools.length" type="button" class="steps-toggle" @click="showSteps = !showSteps">
-                  <Icon :name="showSteps ? 'back' : 'chevron'" :size="14" />{{ showSteps ? '收起过程' : `展开 ${live.tools.length} 个步骤` }}</button>
-                <details v-for="t in (busy || showSteps ? live.tools : [])" :key="t.id" class="tool" :open="t.status === 'failed'" data-action-id="A-104">
+                <!-- 步骤默认折叠；进行中时折叠行显示正在进行的一步与实时已用时 -->
+                <div v-if="busy && !showSteps && running.length" class="now-line">
+                  <span class="tool-icon running"><Icon :name="TOOL_ICON[running[0].tool] || 'doc'" :size="16" /></span>
+                  <span class="tool-name">{{ running[0].label }}<span v-if="running.length > 1" class="now-more">等 {{ running.length }} 项进行中</span></span>
+                  <span class="tool-meta num">{{ toolTime(running[0]) }}</span>
+                </div>
+                <button v-if="live.tools.length" type="button" class="steps-toggle" :aria-expanded="showSteps" @click="showSteps = !showSteps">
+                  <Icon :name="showSteps ? 'back' : 'chevron'" :size="14" />{{ showSteps ? '收起步骤' : `展开 ${live.tools.length} 个步骤` }}<span v-if="failedSteps" class="danger-text">（{{ failedSteps }} 个失败）</span></button>
+                <details v-for="t in (showSteps ? live.tools : [])" :key="t.id" class="tool" :open="t.status === 'failed'" data-action-id="A-104">
                   <summary>
                     <span class="tool-icon" :class="t.status"><Icon :name="TOOL_ICON[t.tool] || 'doc'" :size="16" /></span>
                     <span class="tool-name">{{ t.label }}</span>
-                    <span class="tool-meta">{{ t.status === 'running' ? '进行中' : [t.count !== undefined ? `${t.count} 条` : t.summary, t.elapsed_ms ? duration(t.elapsed_ms) : ''].filter(Boolean).join(' · ') }}</span>
+                    <span class="tool-meta num">{{ [t.status === 'running' ? '' : t.count !== undefined ? `${t.count} 条` : t.summary, toolTime(t)].filter(Boolean).join(' · ') }}</span>
                   </summary>
                   <div class="tool-body">
                     <div v-if="t.summary">{{ t.summary }}</div>
@@ -437,6 +450,9 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
 .steps-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 6px 0 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 14px; cursor: pointer; }
 .steps-toggle:hover { color: var(--ink); }
 .tool summary { display: flex; align-items: center; gap: 10px; min-height: 36px; cursor: pointer; list-style: none; }
+.now-line { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.now-more { margin-left: 8px; font-size: 12px; color: var(--ink-3); }
+.tool-meta.num { font-variant-numeric: tabular-nums; }
 .tool-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); color: var(--ink-3); flex: none; }
 .tool-icon.running { color: var(--accent); border-color: var(--line-strong); animation: pulse 1.2s infinite; }
 .tool-icon.failed, .tool-icon.blocked { color: var(--danger); border-color: #fecaca; }

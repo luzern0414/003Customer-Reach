@@ -64,6 +64,8 @@ export interface ToolCall {
   summary?: string
   error?: string
   elapsed_ms?: number
+  ts?: string          // 事件发生时间（服务端），刷新页面后按它恢复计时
+  startedAt?: number   // 步骤开始的本地毫秒时间
 }
 
 export interface CompanyCard {
@@ -143,8 +145,12 @@ export interface LeadItem {
   match_reason: string
   created_at: string
   updated_at: string
-  company: { id: string; name: string; region: string }
-  notice: { id: string; title: string; kind_label: string; published_on: string; deadline: string; budget: number | null; amount: number | null } | null
+  company: { id: string; name: string; region: string; phone?: string }
+  notice: {
+    id: string; title: string; kind_label: string; published_on: string; deadline: string; budget: number | null; amount: number | null
+    url?: string; deadline_at?: string; days_left?: number | null; expired?: boolean; items?: string; region?: string
+    contact_person?: string; contact_phone?: string
+  } | null
 }
 
 export interface LeadList {

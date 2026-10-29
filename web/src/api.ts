@@ -1,4 +1,4 @@
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 
 let onUnauthorized: () => void = () => {}
 /** 登录失效时的处理（main.ts 注入：清空账号并跳转登录页）。 */

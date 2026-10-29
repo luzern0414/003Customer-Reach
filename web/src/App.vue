@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useRoute, useRouter } from 'vue-router'
 import Avatar from './components/Avatar.vue'
 import Icon from './components/Icon.vue'
@@ -36,6 +37,7 @@ watch(() => route.fullPath, () => { drawer.value = false })
 </script>
 
 <template>
+  <el-config-provider :locale="zhCn">
   <RouterView v-if="route.meta.public" />
   <div v-else class="shell">
     <aside class="side" :class="{ open: drawer }">
@@ -78,6 +80,7 @@ watch(() => route.fullPath, () => { drawer.value = false })
       <RouterView />
     </div>
   </div>
+  </el-config-provider>
 </template>
 
 <style scoped>

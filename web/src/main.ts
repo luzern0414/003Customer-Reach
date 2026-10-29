@@ -1,7 +1,5 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
-import ElementPlus from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/dist/index.css'
 import './theme.css'
 import App from './App.vue'
@@ -38,4 +36,4 @@ setUnauthorizedHandler(() => {
 })
 router.afterEach((to) => { document.title = `${to.meta.title || ''} · DealRadar` })
 
-createApp(App).use(router).use(ElementPlus, { locale: zhCn }).mount('#app')
+createApp(App).use(router).mount('#app')

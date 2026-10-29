@@ -39,7 +39,9 @@ export function followJob(state: JobState, onEnd: () => void): () => void {
 
   const handlers: Record<string, (data: any) => void> = {
     status: (data) => {
-      Object.assign(state, { status: data.status, stage: data.stage, metrics: data.metrics || {}, handover: data.handover || {}, error: data.error || '', syncedAt: Date.now() })
+      // 总用时 = 事件里的已用时 + 事件发生后经过的时间；刷新页面补发的历史事件按发生时间计算
+      Object.assign(state, { status: data.status, stage: data.stage, metrics: data.metrics || {}, handover: data.handover || {}, error: data.error || '',
+        syncedAt: (data.ts && Date.parse(data.ts)) || Date.now() })
     },
     stage: (data) => { state.stage = data.stage; state.stageLabel = data.label },
     title: (data) => { state.title = data.title },
@@ -77,6 +79,7 @@ export function followJob(state: JobState, onEnd: () => void): () => void {
 
 function upsertTool(state: JobState, call: ToolCall) {
   const index = state.tools.findIndex((item) => item.id === call.id)
-  if (index < 0) state.tools.push(call)
+  // 开始时间取事件发生时间；旧事件没有时间时取收到的时间
+  if (index < 0) state.tools.push({ ...call, startedAt: (call.ts && Date.parse(call.ts)) || Date.now() })
   else state.tools[index] = { ...state.tools[index], ...call }
 }
