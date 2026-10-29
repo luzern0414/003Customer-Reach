@@ -77,8 +77,10 @@ def reason(error: str) -> str:
 async def run(*args: str, timeout: int = TIMEOUT) -> dict:
     if not SCRIPT.exists():
         raise CrawlError(f'未找到 LuzCrawl：{SCRIPT}')
-    headless = args[0] not in ('doctor', 'begin', 'cancel', 'pending') and '--profile' not in args
-    async with _SLOTS, (_HEADLESS if headless else _NULL):
+    # 状态检查、建目录、取消等控制命令不开网页，不占采集名额，研究进行中也能立即返回
+    control = args[0] in ('doctor', 'begin', 'cancel', 'pending')
+    headless = not control and '--profile' not in args
+    async with (_NULL if control else _SLOTS), (_HEADLESS if headless else _NULL):
         process = await asyncio.create_subprocess_exec(
             'node', str(SCRIPT), *args, cwd=str(LUZ_CRAWL),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -171,9 +173,8 @@ async def search(platform: str, query: str, folder: str, profile: str = '') -> P
     page = read_page({**(attempts[-1] if attempts else {}), 'status': result.get('status'),
                       'task_id': result.get('task_id', ''), 'stop_reason': result.get('stop_reason', '')})
     page.url = result.get('search_url') or page.url
-    candidates = [{'text': c.get('text', ''), 'url': c['url']} for c in result.get('candidates') or [] if c.get('url')]
-    if candidates:
-        page.links = candidates
+    # 只采用 LuzCrawl 按关键词筛过的候选；没有候选时不把结果页上的导航链接当成公告
+    page.links = [{'text': c.get('text', ''), 'url': c['url']} for c in result.get('candidates') or [] if c.get('url')]
     if result.get('requires_user'):
         page.status = 'awaiting_user'
     return page

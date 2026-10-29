@@ -5,6 +5,7 @@ from contextvars import ContextVar
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from openai import LengthFinishReasonError
 from pydantic import BaseModel
 
 from .config import MODEL_NAME, credentials
@@ -49,12 +50,21 @@ def _take() -> Usage | None:
 
 
 async def structured[T: BaseModel](schema: type[T], prompt: str, system: str = SYSTEM) -> T:
-    """返回 schema 实例；格式不符时纠正一次，仍失败抛 ValueError。"""
+    """返回 schema 实例；格式不符时纠正一次，输出超出长度上限时放宽上限重试一次，仍失败抛 ValueError。"""
     runner = chat().with_structured_output(schema, method='json_schema', include_raw=True)
     messages = [SystemMessage(content=system), HumanMessage(content=prompt)]
-    for _ in range(2):
+    widened = False
+    for _ in range(3):
         usage = _take()
-        result = await runner.ainvoke(messages)
+        try:
+            result = await runner.ainvoke(messages)
+        except LengthFinishReasonError:
+            # 推理用尽输出上限、没有给出结果：放宽上限再试一次
+            if widened:
+                raise ValueError('模型输出超出长度上限')
+            widened = True
+            runner = chat(max_tokens=12000).with_structured_output(schema, method='json_schema', include_raw=True)
+            continue
         if usage:
             usage.add(result.get('raw'))
         if result.get('parsed') is not None:

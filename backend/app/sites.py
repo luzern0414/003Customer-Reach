@@ -1,9 +1,15 @@
 """数据来源注册表。每个站点给出检索方式（自拼 URL 交给 capture，或 LuzCrawl 平台站内搜索）、
 公告详情链接规则与必要的详情地址改写。新增站点前先用 LuzCrawl 实测列表与详情正文。"""
+import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from urllib.parse import quote, urlencode
+
+from .config import LUZ_CRAWL
+
+log = logging.getLogger('dealradar.sites')
 
 
 @dataclass(frozen=True)
@@ -24,6 +30,9 @@ class Site:
     pages: int = 1                  # 模板含 {page}/{offset} 时可翻的页数
     page_size: int = 10             # {offset} 每页步长（必应 first=1、11、21…）
     web: bool = False               # 搜索引擎：结果指向其他网站，用于发现新来源
+    region: str = ''                # 省级、城市平台所在地区；需求含该地区时自动加入
+    origin: str = 'builtin'         # builtin / luzcrawl / custom
+    domains: tuple = ()             # 站点域名；非空时详情链接须属于这些域名
 
     def search_url(self, query: str, days: int, fulltext: bool = False, end_offset: int = 0, page: int = 1) -> str:
         """检索 [今天-end_offset-days, 今天-end_offset] 区间；fulltext 用于按企业名检索。"""
@@ -37,6 +46,10 @@ class Site:
         return re.sub(r'\{(\w+)\}', lambda m: values.get(m[1], m[0]), self.template)
 
     def is_detail(self, url: str) -> bool:
+        if self.domains:
+            host = domain_of(url)
+            if not any(host == d or host.endswith('.' + d) for d in self.domains):
+                return False
         return bool(re.search(self.detail, url))
 
     def detail_url(self, url: str) -> str:
@@ -84,20 +97,82 @@ SITES: dict[str, Site] = {site.id: site for site in [
 ]}
 
 
+# LuzCrawl 目录中实测通过的采购入口（2026-10-29：198 个候选实测，“空调”“电梯”两词复验）。
+# 检索交给 LuzCrawl 站内搜索：地址模板、站内表单或逐条点击结果行，候选已按关键词过滤。
+_PLACES = ('北京', '天津', '上海', '重庆', '河北', '山西', '内蒙古', '辽宁', '吉林', '黑龙江', '江苏', '浙江', '安徽', '福建',
+           '江西', '山东', '河南', '湖北', '湖南', '广东', '广西', '海南', '四川', '贵州', '云南', '西藏', '陕西', '甘肃',
+           '青海', '宁夏', '新疆', '广州', '深圳', '宁波', '厦门', '大连', '青岛', '烟台', '中山', '佛山')
+# 城市平台同时属于所在省份
+_PROVINCE = {'广州': '广东', '深圳': '广东', '中山': '广东', '宁波': '浙江', '厦门': '福建', '大连': '辽宁', '青岛': '山东', '烟台': '山东', '佛山': '广东'}
+_catalog_cache: dict = {'mtime': None, 'sites': {}}
+
+
+def _region(name: str) -> str:
+    return next((place for place in _PLACES if place in name), '')
+
+
+def _verified_search() -> set[str] | None:
+    """网站库中站内搜索实测通过的入口；网站库不可读时返回 None（不按实测结论过滤）。"""
+    try:
+        library = json.loads((LUZ_CRAWL / 'references' / 'site-library.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return {str(s.get('id')) for s in library.get('sites') or [] if (s.get('verification') or {}).get('search') == 'verified'}
+
+
+def luzcrawl_sites() -> dict[str, Site]:
+    """读取 LuzCrawl 目录中站内搜索实测通过的采购入口；文件缺失或损坏时返回空，研究只用其余站点。"""
+    path = LUZ_CRAWL / 'opencli' / 'catalog.json'
+    library = LUZ_CRAWL / 'references' / 'site-library.json'
+    try:
+        mtime = (path.stat().st_mtime, library.stat().st_mtime if library.exists() else 0)
+        if _catalog_cache['mtime'] == mtime:
+            return _catalog_cache['sites']
+        entries = json.loads(path.read_text(encoding='utf-8')).get('sites') or []
+    except (OSError, ValueError) as exc:
+        log.warning('LuzCrawl 目录不可用：%s', exc)
+        return {}
+    verified = _verified_search()
+    sites = {}
+    for entry in entries:
+        sid, name = str(entry.get('id', '')), str(entry.get('name', ''))
+        if entry.get('category') != 'procurement' or sid in SITES or not re.fullmatch(r'[A-Za-z0-9-]{2,48}', sid) or not name:
+            continue
+        if verified is not None and sid not in verified:
+            continue
+        region = _region(name)
+        domains = tuple(str(d).lower().removeprefix('www.') for d in entry.get('domains') or [] if re.fullmatch(r'[\w.-]+', str(d)))
+        if not domains:
+            continue
+        sites[sid] = Site(sid, name[:100], 'procurement', str(entry.get('detail') or r'^https?://'), platform=sid,
+                          default_on=not region, region=region, origin='luzcrawl', domains=domains)
+    _catalog_cache.update(mtime=mtime, sites=sites)
+    return sites
+
+
+def regional_sites(regions: list[str], switches: dict) -> list[Site]:
+    """需求所含地区对应的省级、城市平台；用户在数据源页面关闭的不加入。"""
+    wanted = {_PROVINCE.get(r, r) for r in (_region(region) for region in regions) if r} | {r for r in map(_region, regions) if r}
+    return [site for site in all_sites().values()
+            if site.region and switches.get(site.id) is not False
+            and (site.region in wanted or _PROVINCE.get(site.region) in wanted)]
+
+
 def from_custom(row) -> Site:
     return Site(row.id, row.name, row.kind, row.detail or r'^https?://', template=row.template if row.mode == 'template' else '',
                 platform=row.domain if row.mode == 'site_search' else '', login=bool(row.login), by_company=bool(row.by_company),
-                note=row.note, custom=True)
+                note=row.note, custom=True, origin='custom')
 
 
 def all_sites() -> dict[str, Site]:
-    """内置站点 + 用户新增站点（数据库），内置在前。"""
+    """内置站点 + LuzCrawl 采购入口 + 用户新增站点（数据库）；ID 重复时以前者为准。"""
     from sqlalchemy import select
 
     from .db import CustomSite, Session
     with Session() as db:
         custom = {row.id: from_custom(row) for row in db.scalars(select(CustomSite).order_by(CustomSite.created_at))}
-    return {**SITES, **{k: v for k, v in custom.items() if k not in SITES}}
+    merged = {**SITES, **{k: v for k, v in luzcrawl_sites().items() if k not in SITES}}
+    return {**merged, **{k: v for k, v in custom.items() if k not in merged}}
 
 
 def get_site(site_id: str) -> Site | None:
@@ -120,10 +195,12 @@ def known_domain(url: str) -> bool:
     for site in all_sites().values():
         if site.web:
             continue
-        if site.is_detail(url) or (site.platform and domain.endswith(site.platform.removeprefix('www.'))):
+        if site.is_detail(url) or (site.custom and site.platform and domain.endswith(site.platform.removeprefix('www.'))):
             return True
     return False
 
 
 def site_of(url: str) -> Site | None:
-    return next((site for site in all_sites().values() if site.kind == 'procurement' and site.is_detail(url)), None)
+    # 具体站点优先，搜索引擎类（结果指向各网站）最后
+    sites = sorted((s for s in all_sites().values() if s.kind == 'procurement'), key=lambda s: s.web)
+    return next((site for site in sites if site.is_detail(url)), None)

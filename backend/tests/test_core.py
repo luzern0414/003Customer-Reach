@@ -316,3 +316,136 @@ def test_auth_hardening(monkeypatch):
     for i in range(3):
         TestClient(app).post('/api/auth/register', json={'username': f'bulk_user{i}', 'password': 'secret5'})
     assert TestClient(app).post('/api/auth/register', json={'username': 'bulk_user9', 'password': 'secret5'}).status_code == 429
+
+
+def test_luzcrawl_sites(tmp_path, monkeypatch):
+    from app import sites
+    catalog = tmp_path / 'opencli' / 'catalog.json'
+    catalog.parent.mkdir()
+    catalog.write_text(json.dumps({'schema_version': 1, 'sites': [
+        {'id': 'ccgp', 'name': '中国政府采购网', 'category': 'procurement', 'domains': ['ccgp.gov.cn']},
+        {'id': 'csg', 'name': '中国南方电网供应链统一服务平台', 'category': 'procurement', 'domains': ['bidding.csg.cn'],
+         'search': 'https://www.bidding.csg.cn/dbsearch.jspx?q={query}'},
+        {'id': 'ggzy-sichuan', 'name': '四川省公共资源交易信息网', 'category': 'procurement', 'domains': ['ggzyjy.sc.gov.cn']},
+        {'id': 'gzggzy', 'name': '广州公共资源交易中心', 'category': 'procurement', 'domains': ['gzggzy.cn']},
+        {'id': 'bad id', 'name': '非法编号', 'category': 'procurement', 'domains': ['x.cn']},
+        {'id': 'nodomain', 'name': '没有域名', 'category': 'procurement'},
+        {'id': 'xhs', 'name': '小红书', 'category': 'social', 'domains': ['xiaohongshu.com']},
+    ]}, ensure_ascii=False), encoding='utf-8')
+    monkeypatch.setattr(sites, 'LUZ_CRAWL', tmp_path)
+    monkeypatch.setitem(sites._catalog_cache, 'mtime', None)
+    loaded = sites.luzcrawl_sites()
+    assert set(loaded) == {'csg', 'ggzy-sichuan', 'gzggzy'}
+    assert loaded['csg'].default_on and loaded['csg'].platform == 'csg' and not loaded['ggzy-sichuan'].default_on
+    assert sites.all_sites()['ccgp'].origin == 'builtin'
+    # 地区：城市平台归入所在省份；用户关闭的不加入
+    assert {s.id for s in sites.regional_sites(['广东省'], {})} == {'gzggzy'}
+    assert {s.id for s in sites.regional_sites(['四川'], {'ggzy-sichuan': False})} == set()
+    assert sites.regional_sites([], {}) == []
+    # 详情链接须属于站点域名
+    assert loaded['csg'].is_detail('https://www.bidding.csg.cn/zbgg/1.jhtml') and not loaded['csg'].is_detail('https://x.com/1')
+    assert not sites.known_domain('https://unknown-site.example.cn/a.html')
+    # 网站库存在时只接入站内搜索实测通过的入口
+    (tmp_path / 'references').mkdir()
+    (tmp_path / 'references' / 'site-library.json').write_text(json.dumps({'sites': [
+        {'id': 'csg', 'verification': {'search': 'verified'}}, {'id': 'gzggzy', 'verification': {'search': 'blocked'}}]}),
+        encoding='utf-8')
+    monkeypatch.setitem(sites._catalog_cache, 'mtime', None)
+    assert set(sites.luzcrawl_sites()) == {'csg'}
+    # 目录损坏时只用其余站点
+    catalog.write_text('{', encoding='utf-8')
+    monkeypatch.setitem(sites._catalog_cache, 'mtime', None)
+    assert sites.luzcrawl_sites() == {} and 'ccgp' in sites.all_sites()
+
+
+def test_platform_search_uses_only_candidates(monkeypatch):
+    import asyncio
+
+    nav = [{'text': '首页', 'url': 'https://x.cn/'}, {'text': '注册', 'url': 'https://x.cn/reg'}]
+
+    def fake_page(meta):
+        return crawl.Page(url='https://x.cn/search', status=meta.get('status') or 'captured', text='结果', links=list(nav))
+
+    async def fake_run(*args, **kwargs):
+        return {'status': 'captured', 'attempts': [{'folder': 'f'}], 'candidates': fake_run.candidates}
+
+    monkeypatch.setattr(crawl, 'run', fake_run)
+    monkeypatch.setattr(crawl, 'read_page', fake_page)
+    fake_run.candidates = []
+    assert asyncio.run(crawl.search('x', '空调', 'folder')).links == []
+    fake_run.candidates = [{'text': '空调采购公告', 'url': 'https://x.cn/notice/1.html'}]
+    assert asyncio.run(crawl.search('x', '空调', 'folder')).links == [{'text': '空调采购公告', 'url': 'https://x.cn/notice/1.html'}]
+
+
+def test_gate_skips_luzcrawl_site_login():
+    from app.research.pipeline import Handover, Run
+    from app.sites import Site
+    run = Run.__new__(Run)
+    run.problems, run.pending_cancel = [], []
+    page = crawl.Page(url='https://x.cn/', status='awaiting_user', stop_reason='login_required', task_id='t1')
+    run.gate(page, Site('lc', '某采购平台', 'procurement', r'^https?://', platform='lc', origin='luzcrawl'))
+    assert run.problems == ['某采购平台：要求登录，本次跳过'] and run.pending_cancel == ['t1']
+    try:
+        run.gate(page, Site('own', '会员站', 'procurement', r'^https?://', platform='own', login=True))
+    except Handover:
+        pass
+    else:
+        raise AssertionError('内置会员站仍应交给用户登录')
+
+
+
+def test_search_jobs_grouped_by_site_rank():
+    from app.research.pipeline import Run
+    from app.sites import Site
+    run = Run.__new__(Run)
+    run.state = {'lists': {}, 'plan': {'mode': 'find_buyers', 'title': '空调买家', 'product': '空调',
+                                       'keywords': ['空调', '精密空调'], 'days': 90}}
+    sites = [Site(f's{i}', f'站{i}', 'procurement', r'^https?://', platform=f's{i}') for i in range(14)]
+    jobs = run._pending_searches(sites)
+    # 前 12 个站先跑完两个关键词，第 13、14 个站排在后面
+    assert [j[0].id for j in jobs[:24]] == [f's{i}' for i in range(12)] * 2
+    assert [j[1] for j in jobs[:24]] == ['空调'] * 12 + ['精密空调'] * 12
+    assert {j[0].id for j in jobs[24:]} == {'s12', 's13'}
+
+
+def test_structured_widens_on_length_limit(monkeypatch):
+    import asyncio
+    from pydantic import BaseModel
+    from app import llm
+
+    class TooLong(Exception):
+        pass
+
+    class Out(BaseModel):
+        value: str = ''
+
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, max_tokens):
+            self.max_tokens = max_tokens
+
+        async def ainvoke(self, messages):
+            calls.append(self.max_tokens)
+            if self.max_tokens < 12000 or FakeRunner.always_long:
+                raise TooLong()
+            return {'parsed': {'value': 'ok'}, 'raw': None}
+
+    class FakeChat:
+        def __init__(self, max_tokens=4000):
+            self.max_tokens = max_tokens
+
+        def with_structured_output(self, *args, **kwargs):
+            return FakeRunner(self.max_tokens)
+
+    monkeypatch.setattr(llm, 'LengthFinishReasonError', TooLong)
+    monkeypatch.setattr(llm, 'chat', lambda max_tokens=4000, **kw: FakeChat(max_tokens))
+    FakeRunner.always_long = False
+    assert asyncio.run(llm.structured(Out, '题目')).value == 'ok' and calls == [4000, 12000]
+    FakeRunner.always_long = True
+    try:
+        asyncio.run(llm.structured(Out, '题目'))
+    except ValueError as exc:
+        assert '长度上限' in str(exc)
+    else:
+        raise AssertionError('连续超出长度上限应报错')

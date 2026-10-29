@@ -17,9 +17,9 @@ from sqlalchemy import func, select
 from .. import crawl, llm
 from ..config import CRAWL_OUT
 from ..db import (Attachment, Company, Conversation, Job, JobCompany, Knowledge, Lead, Message, Notice,
-                  NoticeParty, Session, Source, get_settings, now)
+                  NoticeParty, Session, SiteStat, Source, get_settings, now)
 from ..events import emit
-from ..sites import SITES, Site, domain_of, enabled, get_site, known_domain, site_of
+from ..sites import SITES, Site, domain_of, enabled, get_site, known_domain, regional_sites, site_of
 from . import store
 from .schemas import CompanyExtract, Identity, Keywords, ListResult, NoticeExtract, Plan
 from .verify import company_name, norm
@@ -117,9 +117,9 @@ class Run:
 
     def gate(self, page: crawl.Page, site: Site) -> None:
         """登录/验证页交给用户；限流与失败只记录问题，不重试。"""
-        if page.needs_user and site.web:
-            # 搜索引擎页面出现登录提示不值得让整个研究停下：跳过该来源。
-            self.problems.append(f'{site.name}：要求登录，本次跳过')
+        if page.needs_user and (site.web or site.origin == 'luzcrawl'):
+            # 搜索引擎与 LuzCrawl 批量入口出现登录或验证时不让整个研究停下：跳过该来源，记为未完成项。
+            self.problems.append(f'{site.name}：要求{"完成验证" if "verif" in page.stop_reason else "登录"}，本次跳过')
             self.pending_cancel.append(page.task_id)
             return
         if page.needs_user:
@@ -241,14 +241,14 @@ class Run:
     async def search(self) -> None:
         plan = self.plan
         company_mode = plan.mode == 'company'
-        sites = [s for s in enabled('procurement', self.settings)
-                 if s.id not in self.state.get('skip_sites', []) and (s.by_company or not company_mode)]
+        sites = [s for s in self._procurement_sites() if s.by_company or not company_mode]
         if company_mode:
             # 企业研究看历史：最近若干年，超出站点单次跨度时分段检索。
             jobs = [(site, plan.company, *window) for site in sites
                     for window in self._windows(site, 365 * self.COMPANY_YEARS)]
         else:
-            jobs = self._pending_searches(sites)[:max(self.settings['max_queries'], len(sites))]
+            # 每轮检索有上限，先跑历史表现好的站点，尽早进入阅读；其余在后续轮次补搜
+            jobs = self._pending_searches(sites)[:max(self.settings['max_queries'] * 3, 12)]
         lists = self.state.setdefault('lists', {})
         folder = await self.folder()
 
@@ -276,6 +276,21 @@ class Run:
             if isinstance(result, BaseException):
                 raise result
 
+    def _procurement_sites(self) -> list[Site]:
+        """默认启用的站点 + 需求所含地区的省级、城市平台，去掉本次已跳过的站点；按历史表现排序。"""
+        sites = enabled('procurement', self.settings)
+        sites += [s for s in regional_sites(self.plan.regions, self.settings.get('sources') or {}) if s not in sites]
+        sites = [s for s in sites if s.id not in self.state.get('skip_sites', [])]
+        with Session() as db:
+            stats = {row.site: row for row in db.scalars(select(SiteStat))}
+
+        def score(site: Site) -> float:
+            # 被采用的公告数优先，其次检索成功率；没有记录的站点居中，地区平台略微提前
+            row = stats.get(site.id)
+            rate = row.successes / row.attempts if row and row.attempts else 0.5
+            return (min(row.adopted, 20) if row else 0) * 2 + rate * 3 + (1 if site.region else 0)
+        return sorted(sites, key=score, reverse=True)
+
     @staticmethod
     def _search_key(site: Site, query: str, offset: int, page_no: int) -> str:
         return f'{site.id}|{query}|{offset}' + (f'|p{page_no}' if page_no > 1 else '')
@@ -284,7 +299,9 @@ class Run:
         """尚未执行的检索，按“页 → 关键词 → 站点”排序：先把每个关键词的第一页搜完，再翻页。"""
         plan, lists = self.plan, self.state.get('lists', {})
         queries = list(dict.fromkeys((plan.keywords or [plan.product[:20]]) + self.state.get('extra_keywords', [])))
-        jobs = [(site, query, plan.days, 0, page_no) for page_no in range(1, 4) for query in queries for site in sites
+        # 站点按表现每 12 个一组：先让前一组跑完各关键词，再轮到下一组
+        jobs = [(site, query, plan.days, 0, page_no) for page_no in range(1, 4)
+                for group in range(0, len(sites), 12) for query in queries for site in sites[group:group + 12]
                 if page_no <= (site.pages if site.template else 1)]
         return [job for job in jobs if self._search_key(job[0], job[1], 0, job[4]) not in lists]
 
@@ -312,16 +329,25 @@ class Run:
                 continue
             with Session() as db:
                 text = db.get(Source, item['source_id']).text
-            links = '\n'.join(f'[{i}] {l["text"]}' for i, l in enumerate(item['links']))
             list_site = get_site(item['site'])
             if not list_site:
                 screened.append(key)
                 continue
             async with self.tool('screen', f'筛选{list_site.name}检索结果', item['site']) as info:
-                result = await llm.structured(ListResult, f'研究目标：{goal}\n\n公告链接：\n{links}\n\n列表页正文：\n{text[:10000]}\n\n'
-                                              '逐条判断链接是否与研究目标相关，并从列表正文读出采购人、公告类型、日期、地区。')
+                # 每批最多 25 条链接，避免单次判断过长；单批失败只记为未完成项
+                rows = []
+                for start in range(0, len(item['links']), 25):
+                    batch = item['links'][start:start + 25]
+                    links = '\n'.join(f'[{i}] {l["text"]}' for i, l in enumerate(batch))
+                    try:
+                        result = await llm.structured(ListResult, f'研究目标：{goal}\n\n公告链接：\n{links}\n\n列表页正文：\n{text[:10000]}\n\n'
+                                                      '逐条判断链接是否与研究目标相关，并从列表正文读出采购人、公告类型、日期、地区。')
+                    except ValueError as exc:
+                        self.problems.append(f'{list_site.name}：部分检索结果未能筛选（{exc}）')
+                        continue
+                    rows += [row.model_copy(update={'link': row.link + start}) for row in result.rows if 0 <= row.link < len(batch)]
                 kept = 0
-                for row in result.rows:
+                for row in rows:
                     if not row.relevant or not 0 <= row.link < len(item['links']):
                         continue
                     link = item['links'][row.link]
@@ -426,7 +452,7 @@ class Run:
         target, round_no = self.settings.get('target_leads', 10), self.state.get('round', 1)
         if buyers >= target or round_no >= self.settings.get('max_rounds', 3) or time.monotonic() > self.deadline - 180:
             return None
-        sites = [s for s in enabled('procurement', self.settings) if s.id not in self.state.get('skip_sites', [])]
+        sites = self._procurement_sites()
         if not self._pending_searches(sites) and not self.state.get('extra_keywords'):
             async with self.tool('expand', '补充检索关键词') as info:
                 more = await llm.structured(Keywords, f'产品：{plan.product}\n已用关键词：{"、".join(plan.keywords)}\n'

@@ -185,6 +185,8 @@ export interface SiteInfo {
   detail: string
   by_company: boolean
   stats: { attempts: number; successes: number; adopted: number; last_status: string; last_at: string } | null
+  origin: 'builtin' | 'luzcrawl' | 'custom'
+  region: string
 }
 
 export interface DataSources {

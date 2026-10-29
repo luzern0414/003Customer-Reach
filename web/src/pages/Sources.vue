@@ -145,7 +145,7 @@ const testOk = computed(() => !!test.value && test.value.matched > 0 && !!test.v
         <el-table :data="g.sites" row-key="id" class="desktop">
           <el-table-column label="站点" min-width="260" header-align="center">
             <template #default="{ row }">
-              <div class="cell-main">{{ row.name }} <span v-if="row.custom" class="tag brand">自定义</span></div>
+              <div class="cell-main">{{ row.name }} <span v-if="row.custom" class="tag brand">自定义</span><span v-else-if="row.origin === 'luzcrawl'" class="tag grey">LuzCrawl</span><span v-if="row.region" class="tag purple" :title="`需求含${row.region}时自动加入`">{{ row.region }}</span></div>
               <div class="cell-sub">{{ row.note || (row.mode === 'site_search' ? `站内搜索 · ${row.domain}` : '地址模板') }}</div>
             </template>
           </el-table-column>
@@ -177,7 +177,7 @@ const testOk = computed(() => !!test.value && test.value.matched > 0 && !!test.v
                 <button type="button" class="link-btn op" @click="openForm(row)"><Icon name="note" :size="14" />编辑</button>
                 <button type="button" class="link-btn op danger" @click="remove(row)"><Icon name="trash" :size="14" />删除</button>
               </template>
-              <span v-else class="muted small">内置</span>
+              <span v-else class="muted small">{{ row.origin === 'luzcrawl' ? '—' : '内置' }}</span>
             </template>
           </el-table-column>
         </el-table>
@@ -249,6 +249,7 @@ const testOk = computed(() => !!test.value && test.value.matched > 0 && !!test.v
 </template>
 
 <style scoped>
+.cell-main .tag { margin-left: 6px; }
 .tool { display: flex; align-items: center; gap: 12px; }
 .tool-main { flex: 1; min-width: 0; }
 .tool-title { display: flex; gap: 8px; align-items: center; font-size: 17px; font-weight: 600; }

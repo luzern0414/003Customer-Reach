@@ -385,7 +385,8 @@ async def data_sources(refresh: bool = False):
         'sites': [{'id': s.id, 'name': s.name, 'kind': s.kind, 'login': s.login, 'note': s.note, 'custom': s.custom,
                    'mode': 'site_search' if s.platform and not s.template else 'template', 'template': s.template,
                    'domain': s.platform if s.custom else '', 'detail': s.detail if s.custom else '', 'by_company': s.by_company,
-                   'enabled': switches.get(s.id, s.default_on), 'stats': stats.get(s.id)} for s in all_sites().values()]}
+                   'enabled': switches.get(s.id, s.default_on), 'stats': stats.get(s.id),
+                   'origin': s.origin, 'region': s.region} for s in all_sites().values()]}
 
 
 class SiteIn(BaseModel):
