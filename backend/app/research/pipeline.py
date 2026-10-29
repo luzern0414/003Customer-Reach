@@ -19,7 +19,7 @@ from ..config import CRAWL_OUT
 from ..db import (Attachment, Company, Conversation, Job, JobCompany, Knowledge, Lead, Message, Notice,
                   NoticeParty, Session, SiteStat, Source, get_settings, now)
 from ..events import emit
-from ..sites import SITES, Site, domain_of, enabled, get_site, known_domain, regional_sites, site_of
+from ..sites import SITES, Site, domain_of, enabled, get_site, known_domain, regional_sites, site_of, source_tier
 from . import store
 from .schemas import CompanyExtract, Identity, Keywords, ListResult, NoticeExtract, Plan
 from .verify import company_name, norm
@@ -40,6 +40,15 @@ KIND_LABELS = {'intent': '采购意向', 'tender': '招标公告', 'change': '�
 def _title_key(title: str) -> str:
     """同一公告在不同平台的标题常带编号前缀或站点后缀，去掉后比较。"""
     return re.sub(r'^[A-Z0-9\-]{8,}|[-_|].{0,20}(平台|网)$', '', norm(title))
+
+
+_NON_MAINLAND = re.compile(r'台湾|台灣|臺灣|香港|澳门|澳門')
+# 大陆公告不会出现的繁体字；采购单位或标题中出现两个以上视为港澳台公告
+_TRADITIONAL = set('醫療業總處採購電氣會議與為國際東灣區縣廠構體備標產務資團機關費設計劃辦')
+
+
+def _outside_mainland(title: str, buyer: str, region: str) -> bool:
+    return bool(_NON_MAINLAND.search(f'{buyer} {region}')) or sum(ch in _TRADITIONAL for ch in f'{title}{buyer}') >= 2
 
 
 class Handover(Exception):
@@ -66,7 +75,9 @@ class Run:
         self.browser = self.settings.get('crawl_profile') or ''
         self.started = time.monotonic()
         self.deadline = self.started + self.settings['max_minutes'] * 60 - self.metrics.get('elapsed_ms', 0) / 1000
-        self.usage = llm.Usage(self.settings['max_model_calls'] - self.metrics.get('model_calls', 0))
+        # 剩余次数可能为 0 或负数（预算已用完），只有设置为 0 才表示不限
+        self.usage = llm.Usage(self.settings['max_model_calls'] - self.metrics.get('model_calls', 0),
+                               unlimited=self.settings['max_model_calls'] <= 0)
         self.tool_seq = self.metrics.get('tools', 0)
         self.problems: list[str] = list(self.state.get('problems', []))
         self.pending_cancel: list[str] = []
@@ -82,6 +93,8 @@ class Run:
                             model_calls=self.metrics.get('model_calls', 0) + self.usage.calls,
                             tokens=self.metrics.get('tokens', 0) + self.usage.tokens, tools=self.tool_seq)
         self.started = time.monotonic()
+        # 已计入 metrics 的调用从剩余额度中扣除，再清零本段计数
+        self.usage.limit -= self.usage.calls
         self.usage.calls = self.usage.tokens = 0
         self.state['problems'] = self.problems
         with Session.begin() as db:
@@ -321,8 +334,12 @@ class Run:
             goal += f'。排除：{"、".join(plan.exclusions)}'
         if plan.regions:
             goal += f'。只要这些地区：{"、".join(plan.regions)}'
+        # 未指定港澳台时只要中国大陆的采购单位
+        mainland_only = not any(_NON_MAINLAND.search(region) for region in plan.regions)
+        if mainland_only:
+            goal += '。只要中国大陆的采购单位，不要台湾、香港、澳门的单位'
         candidates = self.state.setdefault('candidates', {})
-        titles = {_title_key(c['title']) for c in candidates.values()}
+        by_title = {_title_key(c['title']): url for url, c in candidates.items()}
         screened = self.state.setdefault('screened', [])
         pending = []
         for key, item in self.state.get('lists', {}).items():
@@ -363,14 +380,26 @@ class Run:
                 if not row.relevant or not 0 <= row.link < len(item['links']):
                     continue
                 link = item['links'][row.link]
+                if mainland_only and _outside_mainland(link['text'], row.buyer, row.region):
+                    continue
                 url = list_site.detail_url(link['url'])
                 title_key = _title_key(link['text'])
                 if list_site.web and not known_domain(url):
                     store.discover(domain_of(url), link['text'], url)
-                if url not in candidates and title_key not in titles and url not in self.state.get('read', {}):
-                    titles.add(title_key)
-                    candidates[url] = {'url': url, 'title': link['text'], 'site': list_site.id, 'buyer': row.buyer,
-                                       'kind': row.kind, 'published_on': row.published_on, 'region': row.region}
+                read = self.state.get('read', {})
+                if url in candidates or url in read:
+                    continue
+                tier = source_tier(url, site_of(url) or list_site)
+                existing = by_title.get(title_key)
+                if existing:
+                    # 同一公告：官方平台原文替换聚合站转载（已读过的不再替换）
+                    old = candidates.get(existing)
+                    if not old or existing in read or old.get('tier', 2) >= tier:
+                        continue
+                    del candidates[existing]
+                by_title[title_key] = url
+                candidates[url] = {'url': url, 'title': link['text'], 'site': list_site.id, 'buyer': row.buyer,
+                                   'kind': row.kind, 'published_on': row.published_on, 'region': row.region, 'tier': tier}
             screened.append(key)
             self.save()
         unread = [c for c in candidates.values() if c['url'] not in self.state.get('read', {})]
@@ -379,10 +408,14 @@ class Run:
         emit(self.job_id, 'progress', {'candidates': len(candidates), 'to_read': len(self.state['to_read'])})
 
     def _rank(self, candidate: dict) -> tuple:
+        """待读顺序：公告类型 → 来源层级（官方原文优先）→ 站点历史采用率 → 公告时间。"""
         active = {'intent': 3, 'tender': 3, 'change': 2, 'candidate': 1, 'award': 1, 'contract': 1}.get(candidate['kind'], 0)
         if self.plan.mode == 'company':
             active = 1
-        return active, candidate.get('published_on') or ''
+        if not hasattr(self, '_adoption'):
+            with Session() as db:
+                self._adoption = {row.site: row.adopted / row.attempts for row in db.scalars(select(SiteStat)) if row.attempts}
+        return active, candidate.get('tier', 2), round(self._adoption.get(candidate['site'], 0.0), 2), candidate.get('published_on') or ''
 
     async def read(self) -> None:
         plan = self.plan

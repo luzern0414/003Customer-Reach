@@ -10,9 +10,10 @@ def norm(text: str) -> str:
 
 
 def company_name(name: str) -> str:
-    """统一企业名：去空白，括号统一为全角，去掉首尾标点。"""
-    value = _SPACE.sub('', name or '').replace('(', '（').replace(')', '）')
-    return value.strip('：:，,。；;')
+    """统一企业名：去空白，括号统一为全角，去掉首尾标点与“本级”后缀。"""
+    value = _SPACE.sub('', name or '').replace('(', '（').replace(')', '）').strip('：:，,。；;')
+    # 政府采购中的“本级”指单位本部，与单位本身是同一采购人
+    return re.sub(r'（?本级）?$', '', value)
 
 
 def grounded(quote: str, text: str) -> bool:

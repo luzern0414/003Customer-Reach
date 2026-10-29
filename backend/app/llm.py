@@ -18,13 +18,14 @@ class BudgetExceeded(Exception):
 
 
 class Usage:
-    """一个任务的模型用量；limit<=0 表示不限制。"""
+    """一个任务的模型用量；limit 为剩余次数，unlimited 时不限制。"""
 
-    def __init__(self, limit: int = 0):
+    def __init__(self, limit: int = 0, unlimited: bool | None = None):
         self.limit, self.calls, self.tokens = limit, 0, 0
+        self.unlimited = limit <= 0 if unlimited is None else unlimited
 
     def take(self) -> None:
-        if self.limit and self.calls >= self.limit:
+        if not self.unlimited and self.calls >= self.limit:
             raise BudgetExceeded('本次任务的模型调用次数已用完')
         self.calls += 1
 

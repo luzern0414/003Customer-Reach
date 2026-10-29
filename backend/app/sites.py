@@ -33,6 +33,7 @@ class Site:
     region: str = ''                # 省级、城市平台所在地区；需求含该地区时自动加入
     origin: str = 'builtin'         # builtin / luzcrawl / custom
     domains: tuple = ()             # 站点域名；非空时详情链接须属于这些域名
+    aggregator: bool = False        # 招标聚合站：转载各平台公告，正文常有删减
 
     def search_url(self, query: str, days: int, fulltext: bool = False, end_offset: int = 0, page: int = 1) -> str:
         """检索 [今天-end_offset-days, 今天-end_offset] 区间；fulltext 用于按企业名检索。"""
@@ -111,13 +112,16 @@ def _region(name: str) -> str:
     return next((place for place in _PLACES if place in name), '')
 
 
-def _verified_search() -> set[str] | None:
-    """网站库中站内搜索实测通过的入口；网站库不可读时返回 None（不按实测结论过滤）。"""
+def _library() -> dict[str, dict] | None:
+    """LuzCrawl 网站库（id → 条目）；不可读时返回 None（不按实测结论过滤）。"""
     try:
         library = json.loads((LUZ_CRAWL / 'references' / 'site-library.json').read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
-    return {str(s.get('id')) for s in library.get('sites') or [] if (s.get('verification') or {}).get('search') == 'verified'}
+    return {str(s.get('id')): s for s in library.get('sites') or []}
+
+
+_AGGREGATOR_KIND = re.compile(r'aggregator|聚合|招标目录|b2b', re.I)
 
 
 def luzcrawl_sites() -> dict[str, Site]:
@@ -132,22 +136,38 @@ def luzcrawl_sites() -> dict[str, Site]:
     except (OSError, ValueError) as exc:
         log.warning('LuzCrawl 目录不可用：%s', exc)
         return {}
-    verified = _verified_search()
+    library = _library()
     sites = {}
     for entry in entries:
         sid, name = str(entry.get('id', '')), str(entry.get('name', ''))
         if entry.get('category') != 'procurement' or sid in SITES or not re.fullmatch(r'[A-Za-z0-9-]{2,48}', sid) or not name:
             continue
-        if verified is not None and sid not in verified:
+        info = (library or {}).get(sid) or {}
+        if library is not None and (info.get('verification') or {}).get('search') != 'verified':
             continue
         region = _region(name)
         domains = tuple(str(d).lower().removeprefix('www.') for d in entry.get('domains') or [] if re.fullmatch(r'[\w.-]+', str(d)))
         if not domains:
             continue
         sites[sid] = Site(sid, name[:100], 'procurement', str(entry.get('detail') or r'^https?://'), platform=sid,
-                          default_on=not region, region=region, origin='luzcrawl', domains=domains)
+                          default_on=not region, region=region, origin='luzcrawl', domains=domains,
+                          aggregator=bool(_AGGREGATOR_KIND.search(str(info.get('kind', '')))))
     _catalog_cache.update(mtime=mtime, sites=sites)
     return sites
+
+
+_OFFICIAL = re.compile(r'\.(gov|edu|mil|ac)\.cn$|(^|\.)cas\.cn$')
+
+
+def source_tier(url: str, site: Site | None) -> int:
+    """来源层级：3 官方原文（政府、高校、科研院所、军队域名与采购单位自己的平台），1 聚合转载，2 其余。"""
+    if _OFFICIAL.search(domain_of(url)):
+        return 3
+    if site is None or site.web:
+        return 2
+    if site.aggregator:
+        return 1
+    return 3 if site.origin == 'luzcrawl' or site.id in ('ccgp', 'ggzy') else 2
 
 
 def regional_sites(regions: list[str], switches: dict) -> list[Site]:

@@ -497,3 +497,95 @@ def test_screen_lists_concurrently_and_merges(monkeypatch):
     assert peak[0] > 1
     assert urls == {'https://www.ccgp.gov.cn/cggg/dfgg/same.htm'} | {f'https://www.ccgp.gov.cn/cggg/dfgg/{i}.htm' for i in range(3)}
     assert len(run.state['screened']) == 4 and any('未能筛选' in p for p in run.problems)
+
+
+def test_screen_prefers_official_and_mainland(monkeypatch):
+    import asyncio
+    from app import llm
+    from app.db import Conversation, Job, Message, Session as DB
+    from app.research.pipeline import Run, _outside_mainland
+    from app.research.schemas import ListResult, ListRow
+
+    assert _outside_mainland('院區兒童UPS電池更換工程', '長庚醫療財團法人', '')
+    assert _outside_mainland('蓄电池采购', '某公司', '香港')
+    assert not _outside_mainland('西南医科大学附属医院UPS电池组采购', '西南医科大学附属医院', '四川')
+    with DB.begin() as db:
+        conversation = Conversation(title='来源层级测试')
+        db.add(conversation)
+        db.flush()
+        message = Message(conversation_id=conversation.id, role='user', content='找UPS买家')
+        db.add(message)
+        db.flush()
+        job = Job(conversation_id=conversation.id, message_id=message.id, plan={'plan': {
+            'mode': 'find_buyers', 'title': 'UPS买家', 'product': 'UPS', 'keywords': ['UPS'], 'days': 90}})
+        db.add(job)
+        db.flush()
+        job_id = job.id
+    title = '某医院UPS电源采购项目招标公告'
+    lists = {}
+    # 先出现聚合站转载，后出现政府平台原文；另有一条台湾公告
+    for key, site, url, extra in [('qianlima|UPS|0', 'qianlima', 'https://www.qianlima.com/zb/detail/1.html', '台塑企業總管理處採購部蓄电池'),
+                                  ('ccgp|UPS|0', 'ccgp', 'https://www.ccgp.gov.cn/cggg/dfgg/1.htm', '')]:
+        page = crawl.Page(url=f'https://list/{site}', status='captured', title='列表', text='列表正文')
+        links = [{'text': title, 'url': url}] + ([{'text': extra, 'url': url.replace('1.html', '2.html')}] if extra else [])
+        lists[key] = {'site': site, 'query': 'UPS', 'status': 'captured', 'links': links,
+                      'source_id': store.save_source(page, site, 'list', job_id)}
+    run = Run(job_id)
+    run.state['lists'] = lists
+
+    async def fake_structured(schema, prompt, system=''):
+        assert '只要中国大陆的采购单位' in prompt
+        n = prompt.count('\n[')
+        return ListResult(rows=[ListRow(link=i, relevant=True, kind='tender', buyer='台塑企業總管理處' if i else '') for i in range(n + 1)])
+
+    monkeypatch.setattr(llm, 'structured', fake_structured)
+    asyncio.run(run.screen())
+    # 同名公告保留政府平台原文；台湾公告被排除
+    assert set(run.state['candidates']) == {'https://www.ccgp.gov.cn/cggg/dfgg/1.htm'}
+    assert run.state['candidates']['https://www.ccgp.gov.cn/cggg/dfgg/1.htm']['tier'] == 3
+
+
+def test_model_budget_survives_saves():
+    from app import llm
+    usage = llm.Usage(3, unlimited=False)
+    usage.take(); usage.take()
+    # 模拟保存进度：已用次数扣除剩余额度后清零
+    usage.limit -= usage.calls
+    usage.calls = 0
+    usage.take()
+    try:
+        usage.take()
+    except llm.BudgetExceeded:
+        pass
+    else:
+        raise AssertionError('保存进度后预算仍应生效')
+    assert llm.Usage(0, unlimited=True).unlimited and not llm.Usage(0, unlimited=False).unlimited
+    exhausted = llm.Usage(0, unlimited=False)
+    try:
+        exhausted.take()
+    except llm.BudgetExceeded:
+        pass
+    else:
+        raise AssertionError('额度为 0 时不能当作不限')
+
+
+def test_capture_retries_file_lock_and_name_suffix(monkeypatch):
+    import asyncio
+    calls = []
+
+    async def fake_run(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            return {'status': 'failed', 'error': "EPERM: operation not permitted, rename 'preflight.json.1fd9101'"}
+        return {'status': 'captured', 'resolved_url': 'https://www.ccgp.gov.cn/cggg/1.htm'}
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(crawl, 'run', fake_run)
+    monkeypatch.setattr(crawl.asyncio, 'sleep', no_sleep)
+    page = asyncio.run(crawl.capture('https://www.ccgp.gov.cn/cggg/1.htm', 'folder'))
+    assert len(calls) == 2 and page.status == 'captured'
+    # 采购人“本级”后缀与单位本身合并
+    assert company_name('廊坊职业技术学院本级') == company_name('廊坊职业技术学院') == '廊坊职业技术学院'
+    assert company_name('某市财政局（本级）') == '某市财政局'

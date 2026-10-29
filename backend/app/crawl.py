@@ -150,14 +150,21 @@ async def begin(title: str, root: Path) -> str:
 
 
 async def capture(url: str, folder: str, profile: str = '', scrolls: int = 6, timeout: int = TIMEOUT) -> Page:
-    try:
-        result = await run('capture', url, '--out', folder, '--scrolls', str(scrolls), *_profile_args(profile), timeout=timeout)
-    except CrawlError as exc:
-        return Page(url=url, status='failed', error=str(exc))
-    except asyncio.TimeoutError:
-        return Page(url=url, status='failed', error='读取超时')
-    page = read_page(result)
-    page.url = page.url or url
+    for attempt in range(2):
+        try:
+            result = await run('capture', url, '--out', folder, '--scrolls', str(scrolls), *_profile_args(profile), timeout=timeout)
+        except CrawlError as exc:
+            page = Page(url=url, status='failed', error=str(exc))
+        except asyncio.TimeoutError:
+            return Page(url=url, status='failed', error='读取超时')
+        else:
+            page = read_page(result)
+            page.url = page.url or url
+        # 同一任务目录并发写入时 Windows 偶发文件占用（EPERM / EBUSY），稍等重试一次
+        if not page.ok and re.search(r'EPERM|EBUSY', page.error or '') and not attempt:
+            await asyncio.sleep(1.5)
+            continue
+        return page
     return page
 
 
