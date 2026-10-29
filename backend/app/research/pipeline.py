@@ -324,18 +324,23 @@ class Run:
         candidates = self.state.setdefault('candidates', {})
         titles = {_title_key(c['title']) for c in candidates.values()}
         screened = self.state.setdefault('screened', [])
+        pending = []
         for key, item in self.state.get('lists', {}).items():
             if key in screened or not item.get('source_id') or not item['links']:
                 continue
-            with Session() as db:
-                text = db.get(Source, item['source_id']).text
             list_site = get_site(item['site'])
             if not list_site:
                 screened.append(key)
                 continue
-            async with self.tool('screen', f'筛选{list_site.name}检索结果', item['site']) as info:
-                # 每批最多 25 条链接，避免单次判断过长；单批失败只记为未完成项
-                rows = []
+            pending.append((key, item, list_site))
+        slots = asyncio.Semaphore(4)
+
+        async def judge(item: dict, list_site: Site) -> list:
+            """判断一个列表中哪些链接相关：每批最多 25 条链接，单批失败只记为未完成项。"""
+            with Session() as db:
+                text = db.get(Source, item['source_id']).text
+            rows = []
+            async with slots, self.tool('screen', f'筛选{list_site.name}检索结果', item['site']) as info:
                 for start in range(0, len(item['links']), 25):
                     batch = item['links'][start:start + 25]
                     links = '\n'.join(f'[{i}] {l["text"]}' for i, l in enumerate(batch))
@@ -346,22 +351,26 @@ class Run:
                         self.problems.append(f'{list_site.name}：部分检索结果未能筛选（{exc}）')
                         continue
                     rows += [row.model_copy(update={'link': row.link + start}) for row in result.rows if 0 <= row.link < len(batch)]
-                kept = 0
-                for row in rows:
-                    if not row.relevant or not 0 <= row.link < len(item['links']):
-                        continue
-                    link = item['links'][row.link]
-                    site = list_site
-                    url = site.detail_url(link['url'])
-                    title_key = _title_key(link['text'])
-                    if site.web and not known_domain(url):
-                        store.discover(domain_of(url), link['text'], url)
-                    if url not in candidates and title_key not in titles and url not in self.state.get('read', {}):
-                        titles.add(title_key)
-                        kept += 1
-                        candidates[url] = {'url': url, 'title': link['text'], 'site': site.id, 'buyer': row.buyer,
-                                           'kind': row.kind, 'published_on': row.published_on, 'region': row.region}
-                info['count'] = kept
+                info['count'] = sum(1 for row in rows if row.relevant)
+            return rows
+
+        # 同时判断多个列表，结果按原顺序合并去重
+        results = await asyncio.gather(*(judge(item, site) for _, item, site in pending), return_exceptions=True)
+        for (key, item, list_site), rows in zip(pending, results):
+            if isinstance(rows, BaseException):
+                raise rows
+            for row in rows:
+                if not row.relevant or not 0 <= row.link < len(item['links']):
+                    continue
+                link = item['links'][row.link]
+                url = list_site.detail_url(link['url'])
+                title_key = _title_key(link['text'])
+                if list_site.web and not known_domain(url):
+                    store.discover(domain_of(url), link['text'], url)
+                if url not in candidates and title_key not in titles and url not in self.state.get('read', {}):
+                    titles.add(title_key)
+                    candidates[url] = {'url': url, 'title': link['text'], 'site': list_site.id, 'buyer': row.buyer,
+                                       'kind': row.kind, 'published_on': row.published_on, 'region': row.region}
             screened.append(key)
             self.save()
         unread = [c for c in candidates.values() if c['url'] not in self.state.get('read', {})]
