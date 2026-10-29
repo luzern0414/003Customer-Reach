@@ -4,17 +4,23 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, patch, query } from '../api'
 import type { LeadItem, LeadList, LeadStatus } from '../types'
-import { LEAD_STATUS, dateParts } from '../format'
+import { LEAD_STATUS, TONE_DOT, dateParts, due, monthDay, wan } from '../format'
 import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
+const SIZES = [10, 20, 50, 100]
+function savedSize() {
+  try { const n = Number(localStorage.getItem('dr.page_size')); return SIZES.includes(n) ? n : 20 } catch { return 20 }
+}
 const q = ref('')
-const status = ref<LeadStatus | ''>((route.query.status as LeadStatus) || '')
+// 默认先看待处理的新线索；“全部”放在最后
+const status = ref<LeadStatus | ''>(route.query.status === 'all' ? '' : ((route.query.status as LeadStatus) || 'new'))
 const owner = ref('')
 const range = ref<'today' | '7' | '30' | 'all' | 'custom'>('all')
 const custom = ref<[string, string] | null>(null)
-const page = ref(1)
+const page = ref(Number(route.query.page) || 1)
+const pageSize = ref(SIZES.includes(Number(route.query.page_size)) ? Number(route.query.page_size) : savedSize())
 const data = ref<LeadList | null>(null)
 const loading = ref(false)
 const error = ref(false)
@@ -36,8 +42,9 @@ const filters = computed(() => {
 async function load() {
   loading.value = true
   error.value = false
+  router.replace({ query: { ...route.query, status: status.value || 'all', page: String(page.value), page_size: String(pageSize.value) } })
   try {
-    data.value = await api<LeadList>(`/leads${query({ ...filters.value, page: page.value, page_size: 20 })}`, { notify: false })
+    data.value = await api<LeadList>(`/leads${query({ ...filters.value, page: page.value, page_size: pageSize.value })}`, { notify: false })
   } catch {
     error.value = true
   } finally {
@@ -47,16 +54,21 @@ async function load() {
 watch(q, () => { window.clearTimeout(timer); timer = window.setTimeout(() => { page.value = 1; load() }, 250) })
 watch([status, owner, range, custom], () => { page.value = 1; load() })
 watch(page, load)
+watch(pageSize, (n) => {
+  try { localStorage.setItem('dr.page_size', String(n)) } catch { /* 本机存储不可用 */ }
+  if (page.value !== 1) page.value = 1
+  else load()
+})
 onMounted(load)
 
 const counts = computed(() => data.value?.counts)
-const stats = computed(() => counts.value ? [
-  { label: '全部线索', value: counts.value.all, icon: 'lead' },
-  { label: '新线索', value: counts.value.new, icon: 'flag' },
-  { label: '跟进中', value: counts.value.contacted + counts.value.following, icon: 'phone' },
-  { label: '已成交', value: counts.value.won, icon: 'check' },
-] : [])
 const exportUrl = computed(() => `/api/leads/export${query(filters.value)}`)
+const items = computed(() => (data.value?.items || []).map((row) => ({ ...row, due: due(row.notice?.deadline) })))
+// 整页为空的列隐藏；整页取值相同的评分写在状态行
+const hasOwner = computed(() => items.value.some((r) => r.owner))
+const hasFollowup = computed(() => items.value.some((r) => r.next_followup_at))
+const sameScore = computed(() => { const s = new Set(items.value.map((r) => r.score)); return items.value.length > 1 && s.size === 1 ? items.value[0].score : null })
+const filtered = computed(() => !!(q.value || status.value || owner.value || range.value !== 'all'))
 
 async function changeStatus(row: LeadItem, next: LeadStatus) {
   if (next === row.status) return
@@ -76,83 +88,84 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
 
 <template>
   <div class="page">
-    <div class="page-head">
-      <span class="page-title"><Icon name="lead" :size="22" />线索管理</span>
-      <div class="page-actions"><a :href="exportUrl" class="el-button" data-action-id="A-308"><Icon name="download" :size="16" /><span>导出</span></a></div>
-    </div>
-
-    <div class="kpis">
-      <div v-for="s in stats" :key="s.label" class="kpi">
-        <div class="kpi-top"><span class="kpi-icon"><Icon :name="s.icon" :size="18" /></span><span class="kpi-label">{{ s.label }}</span></div>
-        <div class="kpi-num">{{ s.value }}</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="toolbar">
-        <el-input v-model="q" class="search" clearable placeholder="搜索客户或线索依据" data-action-id="A-301" @keydown.esc="q = ''">
+    <div class="card flush">
+      <div class="toolbar head">
+        <el-input v-model="q" class="search" clearable placeholder="搜索企业名称或公告" data-action-id="A-301" @keydown.esc="q = ''">
           <template #prefix><Icon name="search" :size="16" /></template>
         </el-input>
         <el-select v-model="owner" clearable filterable placeholder="负责人" class="owner" data-action-id="A-303">
           <el-option v-for="o in data?.owners || []" :key="o" :label="o" :value="o" />
         </el-select>
-        <button v-for="r in RANGES" :key="r.v" type="button" class="chip" :class="{ on: range === r.v }" data-action-id="A-304" @click="range = r.v; custom = null">{{ r.l }}</button>
+        <span class="seg">
+          <button v-for="r in RANGES" :key="r.v" type="button" :class="{ on: range === r.v }" data-action-id="A-304" @click="range = r.v; custom = null">{{ r.l }}</button>
+        </span>
         <el-date-picker v-model="custom" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" class="dates"
                         @change="range = custom ? 'custom' : 'all'" />
+        <span class="grow" />
+        <a :href="exportUrl" class="el-button" data-action-id="A-308"><Icon name="download" :size="16" /><span>导出筛选结果<template v-if="data">（{{ data.total }} 条）</template></span></a>
       </div>
-      <div class="toolbar status-row">
-        <button type="button" class="chip" :class="{ on: !status }" data-action-id="A-302" @click="status = ''">全部 {{ counts?.all ?? '' }}</button>
-        <button v-for="[k, s] in STATUSES" :key="k" type="button" class="chip" :class="{ on: status === k }" data-action-id="A-302" @click="status = k">{{ s.label }} {{ counts?.[k] ?? '' }}</button>
+      <div class="chips status-row">
+        <button v-for="[k, s] in STATUSES" :key="k" type="button" class="chip" :class="{ on: status === k, zero: !counts?.[k] }" data-action-id="A-302" @click="status = k">
+          {{ s.label }}<span class="count">{{ counts?.[k] ?? '' }}</span></button>
+        <button type="button" class="chip" :class="{ on: !status }" data-action-id="A-302" @click="status = ''">全部<span class="count">{{ counts?.all ?? '' }}</span></button>
+        <span class="grow" />
+        <span v-if="sameScore !== null" class="muted small">本页评分均为 {{ sameScore }}</span>
       </div>
 
       <div v-if="error" class="error-line">无法读取线索<el-button size="small" @click="load">重试</el-button></div>
       <template v-else>
-        <el-table v-loading="loading && !!data" :data="data?.items || []" row-key="id" :row-class-name="rowClass" class="desktop">
-          <el-table-column label="客户" min-width="200" header-align="center">
+        <el-table v-loading="loading && !!data" :data="items" row-key="id" :row-class-name="rowClass" class="desktop">
+          <el-table-column label="客户" min-width="190" header-align="center">
+            <template #default="{ row }"><RouterLink :to="`/leads/${row.id}`" class="cell-main cell-clip" :title="row.company.name" data-action-id="A-305">{{ row.company.name }}</RouterLink></template>
+          </el-table-column>
+          <el-table-column label="采购内容" min-width="280" header-align="center">
             <template #default="{ row }">
-              <RouterLink :to="`/leads/${row.id}`" class="cell-main" data-action-id="A-305">{{ row.company.name }}</RouterLink>
-              <div v-if="row.company.region" class="cell-sub">{{ row.company.region }}</div>
+              <span class="cell-clip" :title="row.notice?.title || row.match_reason"><span v-if="row.notice?.kind_label" class="tag plain kind">{{ row.notice.kind_label }}</span>{{ row.notice?.title || row.match_reason || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="线索依据" min-width="240" header-align="center" show-overflow-tooltip>
-            <template #default="{ row }">{{ row.match_reason || '—' }}</template>
+          <el-table-column label="预算（万元）" width="120" header-align="center" align="right">
+            <template #default="{ row }"><span class="num money">{{ wan(row.notice?.budget ?? row.notice?.amount) }}</span></template>
           </el-table-column>
-          <el-table-column label="评分" width="80" align="center"><template #default="{ row }"><span class="num">{{ row.score }}</span></template></el-table-column>
+          <el-table-column label="发布" width="84" align="center"><template #default="{ row }"><span class="num muted">{{ monthDay(row.notice?.published_on) }}</span></template></el-table-column>
+          <el-table-column label="投标截止" width="184" align="center">
+            <template #default="{ row }"><span v-if="row.due.short" class="due"><span class="num">{{ row.due.short }}</span><span class="due-left" :class="row.due.tone">{{ row.due.label }}</span></span><span v-else class="muted">—</span></template>
+          </el-table-column>
+          <el-table-column v-if="sameScore === null" label="评分" width="72" align="center"><template #default="{ row }"><span class="num">{{ row.score }}</span></template></el-table-column>
           <el-table-column label="状态" width="140" align="center">
             <template #default="{ row }">
-              <el-select :model-value="row.status" class="status-select" data-action-id="A-306" @change="(v: LeadStatus) => changeStatus(row, v)">
+              <el-select :model-value="row.status" size="small" class="status-select" data-action-id="A-306" @change="(v: LeadStatus) => changeStatus(row, v)">
+                <template #prefix><span class="dot" :class="TONE_DOT[LEAD_STATUS[row.status as LeadStatus].tone]" /></template>
                 <el-option v-for="[k, s] in STATUSES" :key="k" :label="s.label" :value="k" />
               </el-select>
             </template>
           </el-table-column>
-          <el-table-column label="负责人" width="100" align="center"><template #default="{ row }">{{ row.owner || '—' }}</template></el-table-column>
-          <el-table-column label="下次跟进" width="110" align="center">
-            <template #default="{ row }"><div class="cell-date">{{ row.next_followup_at ? row.next_followup_at.slice(0, 10) : '—' }}<small v-if="row.next_followup_at.length > 10">{{ row.next_followup_at.slice(11, 16) }}</small></div></template>
+          <el-table-column v-if="hasOwner" label="负责人" width="100" align="center"><template #default="{ row }">{{ row.owner || '—' }}</template></el-table-column>
+          <el-table-column v-if="hasFollowup" label="下次跟进" width="120" align="center">
+            <template #default="{ row }"><span class="num">{{ row.next_followup_at ? row.next_followup_at.slice(5, 16) : '—' }}</span></template>
           </el-table-column>
-          <el-table-column label="创建" width="110" align="center"><template #default="{ row }">{{ dateParts(row.created_at).date }}</template></el-table-column>
-          <el-table-column label="操作" width="80" align="center">
+          <el-table-column label="创建" width="84" align="center"><template #default="{ row }"><span class="num muted">{{ monthDay(dateParts(row.created_at).date) }}</span></template></el-table-column>
+          <el-table-column label="操作" width="72" align="center">
             <template #default="{ row }"><RouterLink :to="`/leads/${row.id}`" data-action-id="A-305">打开</RouterLink></template>
           </el-table-column>
           <template #empty>
-            <div v-if="!loading" class="empty"><span class="icon-wrap"><Icon name="lead" :size="40" /></span>
-              <div>{{ q || status || owner || range !== 'all' ? '没有符合条件的线索' : '还没有线索' }}</div>
-              <el-button v-if="!(q || status || owner || range !== 'all')" type="primary" @click="router.push('/workbench')"><Icon name="plus" :size="16" /><span>去找买家</span></el-button></div>
+            <div v-if="!loading" class="empty"><span class="icon-wrap"><Icon name="lead" :size="24" /></span>
+              <div>{{ filtered && status !== 'new' ? '没有符合条件的线索' : status === 'new' && data?.counts.all ? '没有新线索' : '还没有线索' }}</div>
+              <el-button v-if="!data?.counts.all" type="primary" @click="router.push('/workbench')"><Icon name="plus" :size="16" /><span>去找买家</span></el-button></div>
           </template>
         </el-table>
 
         <div class="mobile">
-          <RouterLink v-for="row in data?.items || []" :key="row.id" :to="`/leads/${row.id}`" class="mcard" data-action-id="A-305">
+          <RouterLink v-for="row in items" :key="row.id" :to="`/leads/${row.id}`" class="mcard" data-action-id="A-305">
             <div class="mrow"><span class="cell-main">{{ row.company.name }}</span><span class="tag" :class="LEAD_STATUS[row.status].tone">{{ row.status_label }}</span></div>
-            <div class="mrow"><span class="muted">线索依据</span><span class="mval">{{ row.match_reason || '—' }}</span></div>
-            <div class="mrow"><span class="muted">评分</span><span>{{ row.score }}</span></div>
-            <div class="mrow"><span class="muted">负责人</span><span>{{ row.owner || '—' }}</span></div>
-            <div class="mrow"><span class="muted">创建</span><span>{{ dateParts(row.created_at).date }}</span></div>
+            <div class="mval">{{ row.notice?.title || row.match_reason || '—' }}</div>
+            <div class="mrow"><span v-if="row.due.short" class="due"><span class="num muted">截止 {{ row.due.short }}</span><span class="due-left" :class="row.due.tone">{{ row.due.label }}</span></span><span v-else /><b class="num">{{ wan(row.notice?.budget ?? row.notice?.amount) }} 万元</b></div>
           </RouterLink>
           <div v-if="data && !data.items.length" class="empty">没有线索</div>
         </div>
 
-        <div v-if="data && data.total > 20" class="pager">
-          <el-pagination v-model:current-page="page" layout="total, prev, pager, next" :page-size="20" :total="data.total" data-action-id="A-307" />
+        <div v-if="data && data.total" class="pager">
+          <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="SIZES" :total="data.total" data-action-id="A-307"
+                         :layout="data.total > pageSize ? 'total, sizes, prev, pager, next' : 'total, sizes'" />
         </div>
       </template>
     </div>
@@ -160,22 +173,27 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
 </template>
 
 <style scoped>
-.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.toolbar.head { padding: 12px 16px; }
+.toolbar.head .search { width: 240px; }
 .owner { width: 140px; }
-.dates { max-width: 280px; }
-.status-row { margin-top: -4px; }
-.status-select { width: 112px; }
+.head :deep(.el-date-editor--daterange) { --el-date-editor-width: 240px; width: 240px; flex: none; }
+.status-row { padding: 0 16px 12px; }
+.kind { margin-right: 8px; vertical-align: 1px; }
+.money { font-weight: 600; color: var(--ink); }
+.status-select { width: 100px; }
+.status-select :deep(.el-select__prefix) { margin-right: 2px; }
+.pager { padding: 12px 16px; border-top: 1px solid var(--line); }
 :deep(.flash) td { animation: flash 1.2s; }
-@keyframes flash { 0% { background: var(--brand-tint); } 100% { background: transparent; } }
+@keyframes flash { 0% { background: var(--subtle); } 100% { background: transparent; } }
 a.el-button { text-decoration: none; }
 .mobile { display: none; }
 @media (max-width: 760px) {
-  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .desktop { display: none; }
-  .mobile { display: flex; flex-direction: column; gap: 12px; }
-  .mcard { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); }
-  .mrow { display: flex; justify-content: space-between; gap: 12px; min-height: 24px; }
-  .mval { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .owner, .dates { width: 100%; max-width: none; }
+  .mobile { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+  .mcard { display: flex; flex-direction: column; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--ink); }
+  .mrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 24px; }
+  .mval { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owner, .seg { width: 100%; max-width: none; }
+  .head :deep(.el-date-editor--daterange) { --el-date-editor-width: 100%; width: 100%; }
 }
 </style>

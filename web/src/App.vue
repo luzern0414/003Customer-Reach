@@ -9,7 +9,7 @@ const route = useRoute()
 const router = useRouter()
 const drawer = ref(false)
 const MENU = [
-  { group: '概览', items: [{ id: 'N-000', to: '/', label: '概览', icon: 'overview', match: /^\/$/ }] },
+  { group: '', items: [{ id: 'N-000', to: '/', label: '概览', icon: 'overview', match: /^\/$/ }] },
   { group: '获客', items: [
     { id: 'N-001', to: '/workbench', label: '获客工作台', icon: 'workbench', match: /^\/(workbench|c\/)/ },
     { id: 'N-002', to: '/companies', label: '企业档案', icon: 'company', match: /^\/companies/ },
@@ -39,13 +39,13 @@ watch(() => route.fullPath, () => { drawer.value = false })
   <RouterView v-if="route.meta.public" />
   <div v-else class="shell">
     <aside class="side" :class="{ open: drawer }">
-      <div class="brand"><span class="brand-mark"><Icon name="radar" :size="22" /></span>DealRadar</div>
+      <div class="brand"><span class="brand-mark"><Icon name="radar" :size="18" /></span>DealRadar</div>
       <nav>
         <div v-for="g in menu" :key="g.group" class="group">
-          <div class="group-title">{{ g.group }}</div>
+          <div v-if="g.group" class="group-title">{{ g.group }}</div>
           <RouterLink v-for="item in g.items" :key="item.to" :to="item.to" class="menu-item" :data-navigation-id="item.id"
                       :class="{ on: item.match.test(route.path) }">
-            <Icon :name="item.icon" />{{ item.label }}
+            <Icon :name="item.icon" :size="18" />{{ item.label }}
           </RouterLink>
         </div>
       </nav>
@@ -56,7 +56,7 @@ watch(() => route.fullPath, () => { drawer.value = false })
             <span class="account-name">{{ session.me.username }}</span>
             <span class="account-quota" :class="{ empty: !session.me.unlimited && !session.me.remaining }">{{ quotaText }}</span>
           </span>
-          <Icon name="chevron" :size="16" class="account-more" />
+          <Icon name="down" :size="16" class="account-more" />
         </button>
         <template #dropdown>
           <div class="quota-pop">
@@ -82,25 +82,25 @@ watch(() => route.fullPath, () => { drawer.value = false })
 
 <style scoped>
 .shell { display: flex; height: 100%; }
-.side { width: 216px; flex: none; display: flex; flex-direction: column; background: #fff; border-right: 1px solid var(--line); padding: 16px 12px 12px; overflow-y: auto; }
+.side { width: 216px; flex: none; display: flex; flex-direction: column; background: var(--canvas); border-right: 1px solid var(--line); padding: 14px 10px 10px; overflow-y: auto; }
 .side nav { flex: 1; }
+.brand { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; margin-bottom: 8px; }
+.brand-mark { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); }
+.group { padding: 6px 0; }
+.group-title { padding: 8px 10px 4px; font-size: 12px; line-height: 18px; color: var(--ink-3); }
+.menu-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; color: var(--ink-2); font-size: 14px; }
+.menu-item .icon { color: var(--ink-3); }
+.menu-item:hover { background: var(--subtle); color: var(--ink); }
+.menu-item.on { background: var(--surface); border-color: var(--line); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+.menu-item.on .icon { color: var(--ink); }
 .account-drop { display: block; }
-.account { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 8px; border: 0; border-top: 1px solid var(--line-2); background: none; border-radius: 0; cursor: pointer; text-align: left; font: inherit; color: var(--ink); }
-.account:hover { background: #f5f5f5; border-radius: 8px; }
+.account { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 8px 4px; border: 0; border-top: 1px solid var(--line); background: none; cursor: pointer; text-align: left; font: inherit; color: var(--ink); }
+.account:hover .account-name { color: var(--accent); }
 .account-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.account-name { font-size: 15px; line-height: 22px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-quota { font-size: 13px; line-height: 18px; color: var(--ink-3); }
+.account-name { font-size: 14px; line-height: 20px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-quota { font-size: 12px; line-height: 18px; color: var(--ink-3); }
 .account-quota.empty { color: var(--danger); }
-.account-more { color: var(--ink-3); transform: rotate(-90deg); }
-.brand { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px; font-size: 20px; line-height: 28px; font-weight: 600; margin-bottom: 4px; }
-.brand-mark { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--brand); color: #fff; }
-.group { padding: 10px 0; border-top: 1px solid var(--line-2); }
-.group:first-child { border-top: 0; }
-.group-title { margin: 0 10px 6px; padding-left: 8px; border-left: 3px solid #c9cdd4; font-weight: 600; font-size: 13px; line-height: 18px; color: var(--ink-3); }
-.menu-item { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-radius: 8px; color: var(--ink-2); font-size: 15px; position: relative; }
-.menu-item:hover { background: #f5f5f5; color: var(--ink); }
-.menu-item.on { background: var(--brand-tint); color: var(--brand-press); font-weight: 600; }
-.menu-item.on::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--brand); }
+.account-more { color: var(--ink-3); }
 .main { flex: 1; min-width: 0; overflow-y: auto; }
 .main.full { overflow: hidden; display: flex; flex-direction: column; }
 .topbar { display: none; }
@@ -109,7 +109,7 @@ watch(() => route.fullPath, () => { drawer.value = false })
   .side { position: fixed; z-index: 30; inset: 0 auto 0 0; width: 100%; max-width: 100%; transform: translateX(-100%); transition: transform .2s; }
   .side.open { transform: none; }
   .mask { display: block; position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .3); }
-  .topbar { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; background: #fff; border-bottom: 1px solid var(--line); flex: none; }
+  .topbar { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--line); flex: none; }
   .menu-btn { display: grid; place-items: center; width: 40px; height: 40px; border: 0; background: none; color: var(--ink); }
   .top-brand { font-weight: 600; font-size: 16px; }
 }
@@ -119,8 +119,9 @@ watch(() => route.fullPath, () => { drawer.value = false })
 /* 账号菜单渲染在 body 下（下拉层），不能用 scoped 样式 */
 .quota-pop { min-width: 200px; padding: 12px 16px 8px; border-bottom: 1px solid var(--line-2); }
 .quota-head { white-space: nowrap; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); }
+.quota-head .icon { color: var(--ink-3); }
 .quota-head .num { margin-left: auto; font-weight: 600; color: var(--ink); }
-.quota-track { height: 6px; margin-top: 8px; border-radius: 3px; background: #f2f3f5; overflow: hidden; }
-.quota-fill { display: block; height: 100%; border-radius: 3px; background: var(--brand); }
+.quota-track { height: 4px; margin-top: 8px; border-radius: 4px; background: var(--subtle); overflow: hidden; }
+.quota-fill { display: block; height: 100%; border-radius: 4px; background: var(--ink-2); }
 .menu-out.el-dropdown-menu__item { gap: 8px; font-size: 14px; padding: 8px 16px; }
 </style>

@@ -75,7 +75,6 @@ async function testModel() {
 
 <template>
   <div class="page">
-    <div class="page-head"><span class="page-title"><Icon name="settings" :size="22" />系统设置</span></div>
     <div v-if="error" class="error-line">无法读取设置<el-button size="small" @click="load">重试</el-button></div>
     <el-skeleton v-else-if="!settings" :rows="10" animated class="card" />
     <div v-else class="row-2 even">

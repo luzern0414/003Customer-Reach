@@ -56,22 +56,22 @@ async function submit() {
   <div class="login">
     <div class="panel">
       <section class="visual">
-        <div class="brand"><span class="brand-mark"><Icon name="radar" :size="22" /></span>DealRadar</div>
+        <div class="brand"><span class="brand-mark"><Icon name="radar" :size="18" /></span>DealRadar</div>
         <svg class="art" viewBox="0 0 360 260" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <g stroke="#4e5969" stroke-width="1.5" vector-effect="non-scaling-stroke">
+          <g stroke="#a1a1aa" stroke-width="1.5" vector-effect="non-scaling-stroke">
             <path d="M24 236h312" />
             <path d="M40 236V128l44-14v122M84 136h40v100M54 140h10M54 160h10M54 180h10M54 200h10M98 154h12M98 174h12M98 194h12" />
             <path d="M232 236V150h44v86M276 168h40v68M246 166h16M246 186h16M246 206h16M290 184h12M290 204h12" />
             <rect x="140" y="138" width="80" height="98" rx="6" fill="#fff" />
             <path d="M154 158h52M154 174h52M154 190h36M154 206h44" />
           </g>
-          <g stroke="#2f54eb" stroke-width="1.5" vector-effect="non-scaling-stroke">
+          <g stroke="#3f3f46" stroke-width="1.5" vector-effect="non-scaling-stroke">
             <circle cx="180" cy="74" r="54" />
             <circle cx="180" cy="74" r="34" />
             <circle cx="180" cy="74" r="14" />
             <path d="M180 74l38-38" />
-            <circle cx="206" cy="58" r="4" fill="#2f54eb" />
-            <circle cx="160" cy="98" r="3" fill="#2f54eb" />
+            <circle cx="206" cy="58" r="4" fill="#2563eb" stroke="none" />
+            <circle cx="160" cy="98" r="3" fill="#3f3f46" stroke="none" />
             <path d="M154 206h44" />
           </g>
         </svg>
@@ -110,31 +110,31 @@ async function submit() {
 </template>
 
 <style scoped>
-.login { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; background: var(--page); overflow-y: auto; }
-.panel { width: 100%; max-width: 920px; display: grid; grid-template-columns: minmax(0, 1fr) 400px; background: var(--card); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
-.visual { display: flex; flex-direction: column; gap: 24px; padding: 32px; background: var(--brand-tint); }
-.brand { display: flex; align-items: center; gap: 10px; font-size: 20px; line-height: 28px; font-weight: 600; color: var(--ink); }
-.brand-mark { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--brand); color: #fff; }
-.art { width: 100%; max-width: 400px; margin: auto; }
-.slogan { margin: 0; font-size: 17px; line-height: 26px; font-weight: 600; color: var(--brand-press); text-align: center; }
+.login { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; background: var(--canvas); overflow-y: auto; }
+.panel { width: 100%; max-width: 880px; display: grid; grid-template-columns: minmax(0, 1fr) 400px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.visual { display: flex; flex-direction: column; gap: 24px; padding: 32px; background: var(--canvas); border-right: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--ink); }
+.brand-mark { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); }
+.art { width: 100%; max-width: 380px; margin: auto; }
+.slogan { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--ink-2); text-align: center; }
 .form-side { padding: 40px 40px 32px; display: flex; flex-direction: column; justify-content: center; }
-h1 { margin: 0 0 24px; font-size: 24px; line-height: 32px; font-weight: 600; }
-.form-side :deep(.el-form-item) { margin-bottom: 24px; }
-.form-side :deep(.el-form-item__error) { font-size: 13px; padding-top: 4px; }
-.form-side :deep(.el-form-item__label) { font-size: 15px; color: var(--ink); }
+h1 { margin: 0 0 24px; font-size: 22px; line-height: 30px; font-weight: 600; }
+.form-side :deep(.el-form-item) { margin-bottom: 22px; }
+.form-side :deep(.el-form-item__error) { font-size: 12px; padding-top: 4px; }
+.form-side :deep(.el-form-item__label) { font-size: 14px; color: var(--ink); }
 .form-side :deep(.el-input__prefix) { color: var(--ink-3); }
-.form-side :deep(.el-input--large) { font-size: 15px; }
+.form-side :deep(.el-input--large) { font-size: 14px; }
 .error { display: flex; align-items: center; gap: 6px; margin: -4px 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--danger-tint); color: var(--danger); font-size: 14px; }
-.submit { width: 100%; height: 44px; font-size: 16px; }
+.submit { width: 100%; height: 40px; font-size: 14px; }
 .switch { margin-top: 20px; text-align: center; font-size: 14px; color: var(--ink-3); }
-.switch a { color: var(--brand); font-weight: 600; }
-.switch a:hover { color: var(--brand-hover); }
+.switch a { color: var(--accent); font-weight: 600; }
+.switch a:hover { color: var(--accent-hover); }
 @media (max-width: 760px) {
-  .login { place-items: start center; padding: 0; background: var(--card); }
-  .panel { grid-template-columns: minmax(0, 1fr); border-radius: 0; box-shadow: none; }
-  .visual { padding: 20px 16px 16px; gap: 12px; }
-  .art { max-width: 260px; }
-  .slogan { font-size: 15px; }
+  .login { place-items: start center; padding: 0; background: var(--surface); }
+  .panel { grid-template-columns: minmax(0, 1fr); border: 0; border-radius: 0; }
+  .visual { padding: 20px 16px 16px; gap: 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .art { max-width: 240px; }
+  .slogan { font-size: 14px; }
   .form-side { padding: 24px 16px 32px; }
 }
 </style>

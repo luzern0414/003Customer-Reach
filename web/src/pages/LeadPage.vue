@@ -170,9 +170,10 @@ function copy(text: string) { navigator.clipboard.writeText(text).then(() => ElM
 
 <style scoped>
 .title-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.title-block .page-title { font-size: 22px; line-height: 30px; }
 .crumb { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-3); }
 .sub { display: flex; gap: 12px; align-items: center; color: var(--ink-3); }
-.notice { padding: 12px 0; border-top: 1px solid var(--line-2); }
+.notice { padding: 12px 0; border-top: 1px solid var(--line); }
 .notice:first-of-type { border-top: 0; padding-top: 0; }
 .notice-head { display: flex; gap: 8px; align-items: center; }
 .notice-title { display: block; margin: 6px 0 8px; font-weight: 600; }
@@ -182,7 +183,7 @@ function copy(text: string) { navigator.clipboard.writeText(text).then(() => ElM
 .row { display: flex; gap: 8px; }
 .mt { margin-top: 12px; }
 .questions { margin: 12px 0 0; padding-left: 20px; color: var(--ink-2); }
-.contact { padding: 8px 0; border-top: 1px solid var(--line-2); }
+.contact { padding: 8px 0; border-top: 1px solid var(--line); }
 .contact:first-of-type { border-top: 0; }
 .phone { display: inline-flex; gap: 4px; align-items: center; margin-left: 12px; }
 .fb { display: flex; flex-wrap: wrap; }

@@ -25,7 +25,8 @@ const error = ref(false)
 const loading = ref(true)
 const alertClosed = ref(false)
 const SITE_NAMES: Record<string, string> = { ccgp: '中国政府采购网', ggzy: '全国公共资源交易平台', bidcenter: '采招网', baidu: '百度企业信息', aiqicha: '爱企查' }
-const PALETTE = ['#2f54eb', '#faad14', '#13c2c2', '#722ed1', '#52c41a', '#bfbfbf']
+// 石墨主题：主系列深灰，其余取蓝、中灰与浅灰
+const PALETTE = ['#3f3f46', '#2563eb', '#a1a1aa', '#15803d', '#d4d4d8', '#e4e4e7']
 
 async function load() {
   loading.value = true
@@ -79,8 +80,7 @@ const trendTitle = computed(() => {
 <template>
   <div class="page">
     <div class="page-head">
-      <span class="page-title"><Icon name="overview" :size="24" />概览</span>
-      <div class="seg" role="tablist">
+      <div class="seg page-actions" role="tablist">
         <button v-for="r in RANGES" :key="r.days" type="button" role="tab" :class="{ on: days === r.days }" data-action-id="A-001" @click="days = r.days">{{ r.label }}</button>
       </div>
     </div>
@@ -105,8 +105,8 @@ const trendTitle = computed(() => {
     <template v-else-if="data">
       <div class="kpis">
         <button v-for="k in KPIS" :key="k.key" type="button" class="kpi" data-action-id="A-002" @click="router.push(k.to)">
-          <div class="kpi-top"><span class="kpi-icon"><Icon :name="k.icon" :size="18" /></span><span class="kpi-label">{{ k.label }}</span></div>
           <div class="kpi-num">{{ data.kpis[k.key] }}</div>
+          <div class="kpi-top"><Icon :name="k.icon" :size="16" class="kpi-icon" /><span class="kpi-label">{{ k.label }}</span></div>
           <div class="kpi-foot">
             <template v-if="delta(k.key)">较上期
               <span :class="delta(k.key)!.diff > 0 ? 'up' : delta(k.key)!.diff < 0 ? 'down' : ''">{{ delta(k.key)!.diff > 0 ? '+' : '' }}{{ delta(k.key)!.diff }}</span>
@@ -119,8 +119,8 @@ const trendTitle = computed(() => {
       <div class="row-2">
         <div class="card">
           <div class="card-title"><Icon name="analysis" :size="18" /><span class="grow">{{ trendTitle }}</span></div>
-          <Charts v-if="trend.length" type="trend" unit="条" :labels="trend.map((t) => t.date)"
-                  :series="[{ name: '新增线索', color: '#2f54eb', values: trend.map((t) => t.leads) }, { name: '已读公告', color: '#bfbfbf', values: trend.map((t) => t.notices) }]" />
+          <Charts v-if="trend.length" type="trend" unit="条" :height="300" :labels="trend.map((t) => t.date)"
+                  :series="[{ name: '新增线索', color: '#3f3f46', values: trend.map((t) => t.leads) }, { name: '已读公告', color: '#a1a1aa', values: trend.map((t) => t.notices) }]" />
           <div v-else class="empty">暂无数据</div>
         </div>
         <div class="card">
@@ -131,7 +131,7 @@ const trendTitle = computed(() => {
           <template v-if="data.notice_kinds.length">
             <div class="card-title sub-title"><Icon name="doc" :size="18" />公告类型</div>
             <Charts type="bars" unit="篇" :labels="data.notice_kinds.map((k) => k.label)" :values="data.notice_kinds.map((k) => k.count)"
-                    :colors="data.notice_kinds.map((_, i) => (i === 0 ? '#2f54eb' : '#85a5ff'))" />
+                    :colors="data.notice_kinds.map((_, i) => (i === 0 ? '#3f3f46' : '#a1a1aa'))" />
           </template>
         </div>
       </div>
@@ -167,22 +167,21 @@ const trendTitle = computed(() => {
 
 <style scoped>
 .tall { min-height: 360px; }
-.empty-title { font-size: 17px; font-weight: 600; color: var(--ink); }
-.sub-title { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-2); }
-.pad { padding: 16px 20px 4px; margin: 0; }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--ink); }
+.sub-title { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.pad { padding: 14px 16px 6px; margin: 0; }
 .extra { font-size: 14px; font-weight: 400; }
-.job-row { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-top: 1px solid var(--line-2); color: var(--ink); }
-.job-row:hover { background: var(--brand-tint); }
-.job-icon { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: var(--brand-tint); color: var(--brand-press); flex: none; }
-.job-icon.company { background: #e6fffb; color: #006d75; }
+.job-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--ink); }
+.job-row:hover { background: var(--canvas); }
+.job-icon { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); color: var(--ink-2); flex: none; }
 .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .job-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .risk { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
-.risk-item { display: flex; flex-direction: column; align-items: center; padding: 12px; border-radius: 8px; background: #f7f8fa; color: var(--ink); }
-.risk-num { font-size: 30px; line-height: 38px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.risk-item { display: flex; flex-direction: column; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+.risk-num { font-size: 22px; line-height: 30px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .risk-num.warn { color: var(--warn); }
 .risk-num.bad { color: var(--danger); }
-.site-row { display: flex; align-items: center; gap: 12px; min-height: 44px; border-top: 1px solid var(--line-2); color: var(--ink); }
-.site-row:hover { color: var(--brand-press); }
+.site-row { display: flex; align-items: center; gap: 12px; min-height: 40px; border-top: 1px solid var(--line); color: var(--ink); }
+.site-row:hover { color: var(--accent); }
 .site-row .grow { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

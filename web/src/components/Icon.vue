@@ -1,12 +1,14 @@
 <script setup lang="ts">
-// 全站一套线性图标：24 栅格、1.5 像素描边（任何尺寸保持同一线宽）、圆角端点；颜色跟随文字。
+// 全站一套线性图标：24 栅格、1.75 像素描边（任何尺寸保持同一线宽）、圆角端点；颜色跟随文字。
 const props = withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
 
 const PATHS: Record<string, string> = {
   lock: 'M6 11h12v10H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3M12 15v2',
   logout: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10',
   ticket: 'M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4zM14 7v10',
-  radar: 'M12 3a9 9 0 1 0 9 9M12 7a5 5 0 1 0 5 5M12 12l6.5-6.5M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2',
+  radar: 'M12 3a9 9 0 1 0 9 9M12 7.5a4.5 4.5 0 1 0 4.5 4.5M12 12l5-5',
+  sidebar: 'M4 5h16v14H4zM9 5v14',
+  down: 'M6 9l6 6 6-6',
   overview: 'M4 20V10M10 20V4M16 20v-7M21 20H3',
   workbench: 'M4 5h16v11H9l-5 4z M8 9h8M8 12h5',
   company: 'M4 21V5l8-2v18M12 7h8v14M7 8h2M7 12h2M7 16h2M15 11h2M15 15h2M2 21h20',
@@ -54,7 +56,7 @@ const PATHS: Record<string, string> = {
 </script>
 
 <template>
-  <svg :width="props.size" :height="props.size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+  <svg :width="props.size" :height="props.size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon" style="flex:none">
     <path :d="PATHS[props.name] || PATHS.doc" vector-effect="non-scaling-stroke" />
   </svg>

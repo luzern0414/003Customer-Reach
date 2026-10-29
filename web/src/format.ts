@@ -69,3 +69,38 @@ export function deadline(text: string | null | undefined): string {
   const date = `${m[1]}-${pad(m[2])}-${pad(m[3])}`
   return m[4] ? `${date} ${pad(m[4])}:${pad(m[5] || '0')}` : date
 }
+
+/** 金额（元）→ 万元数字“475.10”，用于表头已写单位的列；空值为“—”。 */
+export function wan(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  return (value / 10000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** 截止时间：短格式“11-13 09:30”（跨年带年份）与剩余天数；7 天内提醒，3 天内紧急。 */
+export function due(text: string | null | undefined): { short: string; left: number | null; label: string; tone: '' | 'warn' | 'danger' } {
+  const full = deadline(text)
+  const m = full.match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?$/)
+  if (!m) return { short: full, left: null, label: '', tone: '' }
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const left = Math.round((new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() - today) / 86400000)
+  const short = `${Number(m[1]) === now.getFullYear() ? '' : `${m[1]}-`}${m[2]}-${m[3]}${m[4] ? ` ${m[4]}` : ''}`
+  const label = left < 0 ? '已截止' : left === 0 ? '今天截止' : `剩 ${left} 天`
+  return { short, left, label, tone: left < 0 ? '' : left <= 3 ? 'danger' : left <= 7 ? 'warn' : '' }
+}
+
+/** 日期“2026-10-23”→“10-23”（跨年保留年份）。 */
+export function monthDay(text: string | null | undefined): string {
+  if (!text) return '—'
+  const m = text.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return text
+  return Number(m[1]) === new Date().getFullYear() ? `${m[2]}-${m[3]}` : `${m[1]}-${m[2]}-${m[3]}`
+}
+
+/** 任务问题里的系统报错原文（EPERM、堆栈等）换成用户能看懂的一句话。 */
+export function plainProblem(text: string): string {
+  return text.replace(/[:：]\s*[^：:]*?(EPERM|EBUSY|ENOENT|Error|rename|Traceback|errno|\bat\s+\w+).*$/i, '：读取失败，继续研究时会重试')
+}
+
+/** 状态语气 → 小圆点类名。 */
+export const TONE_DOT: Record<string, string> = { ok: 'ok', signal: 'warn', warn: 'warn', danger: 'danger', brand: 'run', teal: 'ok', purple: '', grey: '' }

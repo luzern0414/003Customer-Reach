@@ -125,14 +125,13 @@ const testOk = computed(() => !!test.value && test.value.matched > 0 && !!test.v
 <template>
   <div class="page">
     <div class="page-head">
-      <span class="page-title"><Icon name="source" :size="24" />数据源</span>
       <div class="page-actions"><el-button type="primary" @click="openForm()"><Icon name="plus" :size="16" /><span>新增数据源</span></el-button></div>
     </div>
     <div v-if="error" class="error-line">无法读取数据源<el-button size="small" @click="load()">重试</el-button></div>
     <el-skeleton v-else-if="!data" :rows="8" animated class="card" />
     <template v-else>
       <div class="card tool">
-        <span class="kpi-icon"><Icon name="radar" :size="20" /></span>
+        <span class="tool-mark"><Icon name="radar" :size="18" /></span>
         <div class="tool-main">
           <div class="tool-title">采集工具 <span class="tag" :class="data.crawler.ready ? 'ok' : 'danger'">{{ data.crawler.ready ? '就绪' : '未连接' }}</span></div>
           <div class="muted small">版本 {{ data.crawler.version || '—' }} · 浏览器 {{ data.crawler.profile || '—' }}<template v-if="!data.crawler.ready && data.crawler.hint"> · {{ data.crawler.hint }}</template></div>
@@ -252,16 +251,16 @@ const testOk = computed(() => !!test.value && test.value.matched > 0 && !!test.v
 .cell-main .tag { margin-left: 6px; }
 .tool { display: flex; align-items: center; gap: 12px; }
 .tool-main { flex: 1; min-width: 0; }
-.tool-title { display: flex; gap: 8px; align-items: center; font-size: 17px; font-weight: 600; }
-.kpi-icon { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--brand); color: #fff; }
-.pad { padding: 16px 20px 4px; margin: 0; }
+.tool-title { display: flex; gap: 8px; align-items: center; font-size: 16px; font-weight: 600; }
+.tool-mark { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line-strong); color: var(--ink); flex: none; }
+.pad { padding: 14px 16px 6px; margin: 0; }
 .grow { flex: 1; }
-.extra { font-size: 13px; font-weight: 400; color: var(--ink-3); }
+.extra { font-size: 12px; font-weight: 400; color: var(--ink-3); }
 .op { display: inline-flex; align-items: center; gap: 2px; margin: 0 6px; font-size: 14px; }
 .danger { color: var(--danger); }
 .site-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .site-form .full { grid-column: 1 / -1; }
-.test-box { border-radius: 8px; background: #f7f8fa; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.test-box { border-radius: 8px; border: 1px solid var(--line); background: var(--canvas); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .test-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .kw { width: 220px; }
 .test-stats { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }

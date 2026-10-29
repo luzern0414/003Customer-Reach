@@ -10,6 +10,7 @@ const props = defineProps<{
   values?: number[]
   colors?: string[]
   unit?: string
+  height?: number
 }>()
 
 const root = ref<HTMLElement | null>(null)
@@ -20,14 +21,15 @@ onMounted(() => {
   if (root.value) observer.observe(root.value)
 })
 onBeforeUnmount(() => observer?.disconnect())
-const H = 220, PAD = { l: 36, r: 12, t: 12, b: 28 }
+const PAD = { l: 36, r: 12, t: 12, b: 28 }
+const H = computed(() => props.height || 220)
 const W = computed(() => width.value)
 const hover = ref<number | null>(null)
 const pos = ref({ x: 0, y: 0 })
 
 const max = computed(() => Math.max(1, ...(props.series || []).flatMap((s) => s.values)))
 const x = (i: number) => PAD.l + (props.labels.length <= 1 ? 0 : (i * (W.value - PAD.l - PAD.r)) / (props.labels.length - 1))
-const y = (v: number) => H - PAD.b - (v / max.value) * (H - PAD.t - PAD.b)
+const y = (v: number) => H.value - PAD.b - (v / max.value) * (H.value - PAD.t - PAD.b)
 function smooth(values: number[]): string {
   const pts = values.map((v, i) => [x(i), y(v)])
   if (pts.length < 2) return pts.length ? `M${pts[0][0]} ${pts[0][1]}h1` : ''
@@ -62,7 +64,7 @@ const arcs = computed(() => {
     angle += sweep
     const r = 70, c = 90
     const large = a1 - a0 > Math.PI ? 1 : 0
-    return { i, d: `M${c + r * Math.cos(a0)} ${c + r * Math.sin(a0)} A${r} ${r} 0 ${large} 1 ${c + r * Math.cos(a1)} ${c + r * Math.sin(a1)}`, color: props.colors?.[i] || '#bfbfbf' }
+    return { i, d: `M${c + r * Math.cos(a0)} ${c + r * Math.sin(a0)} A${r} ${r} 0 ${large} 1 ${c + r * Math.cos(a1)} ${c + r * Math.sin(a1)}`, color: props.colors?.[i] || '#d4d4d8' }
   })
 })
 const barMax = computed(() => Math.max(1, ...(props.values || [])))
@@ -115,7 +117,7 @@ const pct = (v: number) => (total.value ? Math.round((v / total.value) * 100) : 
       <div class="bars">
         <div v-for="(l, i) in labels" :key="l" class="bar-row" @mouseenter="hover = i" @mouseleave="hover = null">
           <span class="bar-label">{{ l }}</span>
-          <span class="bar-track"><span class="bar-fill" :style="{ width: ((values?.[i] || 0) / barMax) * 100 + '%', background: colors?.[i] || '#2f54eb' }" /></span>
+          <span class="bar-track"><span class="bar-fill" :style="{ width: ((values?.[i] || 0) / barMax) * 100 + '%', background: colors?.[i] || '#3f3f46' }" /></span>
           <span class="bar-value num">{{ values?.[i] }}</span>
           <div v-if="hover === i" class="tip inline"><div class="tip-row">{{ l }}<b>{{ values?.[i] }} {{ unit }} · {{ pct(values?.[i] || 0) }}%</b></div></div>
         </div>
@@ -127,16 +129,16 @@ const pct = (v: number) => (total.value ? Math.round((v / total.value) * 100) : 
 <style scoped>
 .chart { position: relative; }
 .svg { display: block; width: 100%; height: auto; }
-.grid { stroke: #f0f0f0; }
-.cross { stroke: #d9d9d9; stroke-dasharray: 3 3; }
-.axis-label { font-size: 13px; fill: var(--ink-3); }
-.tip { position: absolute; z-index: 5; pointer-events: none; transform: translateY(-50%); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; box-shadow: var(--shadow-pop); font-size: 13px; line-height: 20px; white-space: nowrap; }
+.grid { stroke: #f4f4f5; }
+.cross { stroke: #d4d4d8; stroke-dasharray: 3 3; }
+.axis-label { font-size: 12px; fill: var(--ink-3); }
+.tip { position: absolute; z-index: 5; pointer-events: none; transform: translateY(-50%); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; box-shadow: var(--shadow-pop); font-size: 12px; line-height: 20px; white-space: nowrap; }
 .tip.inline { right: 0; top: 50%; }
 .tip-title { color: var(--ink-3); margin-bottom: 2px; }
 .tip-row { display: flex; align-items: center; gap: 6px; }
 .tip-row b { margin-left: 12px; font-weight: 600; }
 .tip-row i, .legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.legend { display: flex; gap: 16px; justify-content: center; font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+.legend { display: flex; gap: 16px; justify-content: center; font-size: 12px; color: var(--ink-2); margin-top: 4px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend.column { flex-direction: column; gap: 6px; align-items: stretch; flex: 1; min-width: 0; justify-content: center; font-size: 14px; }
 .legend.column b { margin-left: auto; font-weight: 600; }
@@ -147,7 +149,7 @@ const pct = (v: number) => (total.value ? Math.round((v / total.value) * 100) : 
 .bars { display: flex; flex-direction: column; gap: 10px; }
 .bar-row { position: relative; display: grid; grid-template-columns: 76px minmax(0, 1fr) 36px; gap: 10px; align-items: center; font-size: 14px; }
 .bar-label { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar-track { height: 10px; background: #f5f5f5; border-radius: 4px; overflow: hidden; }
+.bar-track { height: 6px; background: var(--subtle); border-radius: 4px; overflow: hidden; }
 .bar-fill { display: block; height: 100%; border-radius: 4px; }
 .bar-value { text-align: right; font-weight: 600; }
 </style>
