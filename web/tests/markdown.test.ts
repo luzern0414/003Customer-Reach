@@ -3,6 +3,11 @@ import {test} from 'node:test'
 import {strict as assert} from 'node:assert'
 import {displayMarkdown,configureMarkdown} from '../src/markdown.ts'
 import {getMarkdown,parseMarkdownToStructure} from 'stream-markdown-parser'
+import {splitPurchaseItems} from '../src/format.ts'
+
+test('purchase content is limited to three points',()=>{
+  assert.deepEqual(splitPurchaseItems('服务器；存储设备\n网络安全\n机房运维\n培训'),['服务器','存储设备','网络安全'])
+})
 
 test('only unfinished formatting prefixes are hidden',()=>{
   assert.equal(displayMarkdown('1. **已完成**\n2. **',false),'1. **已完成**\n2. ')

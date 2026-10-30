@@ -68,3 +68,35 @@ def test_duplicate_request_id_returns_same_message(monkeypatch):
     second = client.post(f'/api/conversations/{conversation["id"]}/messages', json=body).json()
     assert second['message_id'] == first['message_id']
     assert second['job']['id'] == first['job']['id']
+
+
+def test_search_report_has_rows_and_no_paragraph_reply():
+    from app.db import Conversation, Job, Message, Session
+
+    with Session.begin() as db:
+        conversation = Conversation(title='AI research')
+        db.add(conversation)
+        db.flush()
+        message = Message(conversation_id=conversation.id, role='user', content='search AI safety')
+        db.add(message)
+        db.flush()
+        job = Job(conversation_id=conversation.id, message_id=message.id, mode='search', status='completed', plan={
+            'search_queries': [{'query': 'AI safety', 'language': 'en'}],
+            'search_candidates': [{'url': 'https://example.com/paper'}],
+            'search_results': [{'status': 'verified', 'title': 'AI Safety', 'url': 'https://example.com/paper',
+                                'language': 'en', 'published_on': '2026-10-29', 'points': ['Robustness'],
+                                'summary': 'Safety research', 'quote': 'Robustness is evaluated', 'source_id': 's1'}],
+            'stage_history': [{'stage': 'web_verify', 'status': 'completed'}],
+        })
+        db.add(job)
+        db.flush()
+        message.job_id = job.id
+        conversation_id, job_id = conversation.id, job.id
+
+    client = signed_in()
+    report = client.get(f'/api/jobs/{job_id}/report').json()
+    assert report['mode'] == 'search'
+    assert report['columns'] == ['标题', '来源', '语言', '日期', '要点', '原文']
+    assert report['rows'][0]['status'] == 'verified'
+    detail = client.get(f'/api/conversations/{conversation_id}').json()
+    assert not any(message['role'] == 'assistant' and message['content'].strip() for message in detail['messages'])

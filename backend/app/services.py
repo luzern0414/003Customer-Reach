@@ -677,6 +677,29 @@ def job_report(job_id: str) -> dict:
     with Session() as db:
         job = _get(db, Job, job_id)
         plan, metrics = job.plan or {}, job.metrics or {}
+        if job.mode == 'search':
+            rows = [row for row in (plan.get('search_results') or []) if row.get('status') == 'verified']
+            return {
+                'status': job.status,
+                'mode': 'search',
+                'elapsed_ms': metrics.get('elapsed_ms', 0),
+                'model_calls': metrics.get('model_calls', 0),
+                'first_result_ms': metrics.get('first_result_ms'),
+                'columns': ['标题', '来源', '语言', '日期', '要点', '原文'],
+                'rows': rows,
+                'path': plan.get('stage_history', []),
+                'sources': list(dict.fromkeys(plan.get('source_ids') or [])),
+                'problems': list(dict.fromkeys(plan.get('problems') or [])),
+                'counts': {'searches': len(plan.get('search_queries') or []), 'rounds': 1,
+                           'candidates': len(plan.get('search_candidates') or []),
+                           'read': sum(1 for row in rows if row.get('source_id')), 'read_failed': 0,
+                           'notices': 0, 'companies': 0, 'buyers': 0, 'leads': 0, 'contacts': 0, 'profiled': 0},
+                'quality': {'checked': len(plan.get('search_results') or []), 'kept': len(rows),
+                            'rate': len(rows) / len(plan.get('search_results') or []) if plan.get('search_results') else None,
+                            'notice_total': 0, 'complete': {'budget': 0, 'deadline': 0, 'items': 0, 'contact': 0},
+                            'buyers': 0, 'profiled': 0},
+                'sites': [], 'top': [], 'records': [],
+            }
         names = {s.id: s.name for s in all_sites().values()}
         sources = select(Source.id).where(Source.job_id == job_id)
         # 本次新读的公告 + 复用的已读公告

@@ -78,6 +78,12 @@ export function wan(value: number | null | undefined): string {
   return (value / 10000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** 采购内容拆成最多三个可读列点，完整原文由调用方放入 title。 */
+export function splitPurchaseItems(text: string): string[] {
+  const values = text.split(/[；;、|\n]+/).map((item) => item.trim()).filter(Boolean)
+  return [...new Set(values)].slice(0, 3)
+}
+
 /** 截止时间：短格式“11-13 09:30”（跨年带年份）与剩余天数；7 天内提醒，3 天内紧急。 */
 export function due(text: string | null | undefined): { short: string; left: number | null; label: string; tone: '' | 'warn' | 'danger' } {
   const full = deadline(text)

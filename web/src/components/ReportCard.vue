@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { get } from '../api'
-import { JOB_STATUS, TONE_DOT, due, duration, monthDay, plainProblem, wan } from '../format'
+import { JOB_STATUS, TONE_DOT, due, duration, monthDay, plainProblem, splitPurchaseItems, wan } from '../format'
 import type { CompanyCard, JobStatus, LeadStatus } from '../types'
 import Icon from './Icon.vue'
 
@@ -22,6 +22,13 @@ interface Report {
   problems: string[]
   top: Buyer[]
   records: { title: string; url: string; date: string; role: string; counterpart: string; amount: number | null }[]
+  columns?: string[]
+  rows?: SearchRow[]
+  path?: { stage: string; label?: string; status: string; elapsed_ms?: number; count?: number; error?: string }[]
+  sources?: string[]
+}
+interface SearchRow {
+  status: string; title: string; url: string; language: string; published_on: string; points: string[]; summary?: string; quote?: string
 }
 
 const props = defineProps<{ jobId: string; version?: number }>()
@@ -45,12 +52,15 @@ watch(() => [props.jobId, props.version], async () => {
   } catch { failed.value = true }
 }, { immediate: true })
 
-const buyersMode = computed(() => report.value?.mode !== 'company')
+const buyersMode = computed(() => report.value?.mode === 'find_buyers')
+const searchMode = computed(() => report.value?.mode === 'search')
 const stats = computed(() => {
   const c = report.value?.counts
   if (!c) return []
   const rate = report.value?.quality.rate
   const verified = { label: '原文核验通过', value: rate === null || rate === undefined ? '—' : `${Math.round(rate * 100)}%` }
+  if (searchMode.value) return [{ label: '搜索次数', value: c.searches }, { label: '候选来源', value: c.candidates },
+    { label: '读取原文', value: c.read }, { label: '核验结果', value: report.value?.rows?.length || 0 }]
   return buyersMode.value
     ? [{ label: '新增线索', value: c.leads }, { label: '采购方', value: c.buyers }, { label: '核验公告', value: c.notices },
        { label: '取得联系人', value: c.contacts }, { label: '补充工商', value: c.profiled }, { label: '涉及企业', value: c.companies }, verified]
@@ -86,12 +96,16 @@ function sortBy(key: 'budget' | 'deadline') {
 }
 const problems = computed(() => (report.value?.problems || []).map(plainProblem))
 const statusDot = computed(() => (report.value ? TONE_DOT[JOB_STATUS[report.value.status].tone] : ''))
+function host(url: string): string {
+  try { return new URL(url).hostname }
+  catch { return url }
+}
 </script>
 
 <template>
   <section v-if="report" class="report">
     <header class="r-head">
-      <span class="r-title">研究报告</span>
+      <span class="r-title">{{ searchMode ? '全网搜索结果' : '研究报告' }}</span>
       <span class="r-state"><span class="dot" :class="statusDot" />{{ JOB_STATUS[report.status].label }}</span>
       <span class="r-meta">用时 <b class="num">{{ duration(report.elapsed_ms) }}</b><template v-if="report.first_result_ms"> · 首批结果 <b class="num">{{ duration(report.first_result_ms) }}</b></template> · 模型调用 <b class="num">{{ report.model_calls }}</b> 次</span>
     </header>
@@ -101,8 +115,8 @@ const statusDot = computed(() => (report.value ? TONE_DOT[JOB_STATUS[report.valu
     </div>
 
     <div class="r-bar">
-      <span class="r-sub">{{ buyersMode ? '采购单位清单' : '采购与中标记录' }}</span>
-      <span class="r-caption">{{ buyersMode ? `${report.top.length} 家` : `${report.records.length} 条` }}<template v-if="buyersMode && summary"> · {{ summary }}</template></span>
+      <span class="r-sub">{{ searchMode ? '核验结果表' : buyersMode ? '采购单位清单' : '采购与中标记录' }}</span>
+      <span class="r-caption">{{ searchMode ? `${report.rows?.length || 0} 条` : buyersMode ? `${report.top.length} 家` : `${report.records.length} 条` }}<template v-if="buyersMode && summary"> · {{ summary }}</template></span>
       <span class="grow" />
       <template v-if="buyersMode && report.counts.leads">
         <a href="/api/leads/export" class="el-button"><Icon name="download" :size="16" /><span>导出</span></a>
@@ -125,7 +139,7 @@ const statusDot = computed(() => (report.value ? TONE_DOT[JOB_STATUS[report.valu
             <RouterLink :to="t.lead_id ? `/leads/${t.lead_id}` : `/companies/${t.company_id}`" class="name" :title="t.name">{{ t.name }}</RouterLink>
             <span v-if="t.industry" class="tag plain ind" :title="t.industry">{{ t.industry }}</span>
           </span></td>
-          <td class="l"><span class="clip" :title="t.notice"><span v-if="!sameKind && t.kind" class="tag plain">{{ t.kind }}</span>{{ t.items || t.notice || '—' }}</span></td>
+          <td class="l"><span class="clip" :title="t.items || t.notice"><span v-if="!sameKind && t.kind" class="tag plain">{{ t.kind }}</span><ul v-if="splitPurchaseItems(t.items || t.notice).length" class="purchase-list"><li v-for="line in splitPurchaseItems(t.items || t.notice)" :key="line">{{ line }}</li></ul><span v-else>—</span></span></td>
           <td class="r num strong">{{ wan(t.budget) }}</td>
           <td class="c num muted">{{ monthDay(t.published_on) }}</td>
           <td class="c"><span v-if="t.due.short" class="due"><span class="num">{{ t.due.short }}</span><span class="due-left" :class="t.due.tone">{{ t.due.label }}</span></span><span v-else class="muted">—</span></td>
@@ -139,7 +153,7 @@ const statusDot = computed(() => (report.value ? TONE_DOT[JOB_STATUS[report.valu
     <div v-if="buyersMode && report.top.length" class="m-list">
       <RouterLink v-for="t in shown" :key="t.company_id" :to="t.lead_id ? `/leads/${t.lead_id}` : `/companies/${t.company_id}`" class="m-card">
         <div class="m-row"><span class="name">{{ t.name }}</span><b class="num">{{ t.budget === null ? '—' : `${wan(t.budget)} 万元` }}</b></div>
-        <div class="m-items">{{ t.items || t.notice }}</div>
+        <div class="m-items" :title="t.items || t.notice"><ul v-if="splitPurchaseItems(t.items || t.notice).length" class="purchase-list"><li v-for="line in splitPurchaseItems(t.items || t.notice)" :key="line">{{ line }}</li></ul><span v-else>—</span></div>
         <div class="m-row"><span v-if="t.due.short" class="due"><span class="num muted">截止 {{ t.due.short }}</span><span class="due-left" :class="t.due.tone">{{ t.due.label }}</span></span><span class="num muted">{{ t.contact_phone }}</span></div>
       </RouterLink>
     </div>
@@ -160,12 +174,29 @@ const statusDot = computed(() => (report.value ? TONE_DOT[JOB_STATUS[report.valu
       </tbody>
     </table>
 
-    <div class="r-more">
+    <div v-if="searchMode" class="table-scroll search-results">
+      <table class="grid search-grid" data-pagination="none">
+        <colgroup><col><col class="c-src"><col class="c-lang"><col class="c-day"><col class="c-points"><col class="c-src"></colgroup>
+        <thead><tr><th>标题</th><th>来源</th><th>语言</th><th>日期</th><th>要点</th><th>原文</th></tr></thead>
+        <tbody>
+          <tr v-for="row in (report.rows || [])" :key="row.url">
+            <td class="l"><a :href="row.url" target="_blank" rel="noopener" class="clip notice" :title="row.summary || row.title">{{ row.title }}</a></td>
+            <td class="c"><a :href="row.url" target="_blank" rel="noopener" class="src" :title="row.url"><Icon name="external" :size="14" />{{ host(row.url) }}</a></td>
+            <td class="c"><span class="tag" :class="row.language === 'en' ? 'brand' : row.language === 'zh' ? 'teal' : 'grey'">{{ row.language }}</span></td>
+            <td class="c num muted c-day">{{ row.published_on || '—' }}</td>
+            <td class="l"><span class="clip" :title="row.summary || row.quote"><ul v-if="row.points?.length" class="purchase-list"><li v-for="point in row.points.slice(0, 3)" :key="point">{{ point }}</li></ul><span v-else>—</span></span></td>
+            <td class="c"><a :href="row.url" target="_blank" rel="noopener" class="src" :title="row.quote || ''"><Icon name="external" :size="14" />打开</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="!searchMode" class="r-more">
       <button type="button" class="r-more-head" :aria-expanded="showMore" @click="showMore = !showMore">
         <Icon name="chevron" :size="16" :class="{ open: showMore }" /><span class="r-sub">检索过程与数据质量</span>
         <span class="r-caption num">{{ report.sites.length }} 个网站 · 检索 {{ report.counts.searches }} 次 · 候选 {{ report.counts.candidates }} 条 · 阅读 {{ report.counts.read }} 篇<template v-if="report.counts.read_failed"> · {{ report.counts.read_failed }} 篇未读到</template></span>
       </button>
-      <div v-if="showMore" class="r-more-body">
+      <div v-if="showMore && !searchMode" class="r-more-body">
         <div class="quality">
           <div v-for="c in completeness" :key="c.label" class="bar-row">
             <span class="muted">{{ c.label }}</span>
@@ -208,12 +239,14 @@ const statusDot = computed(() => (report.value ? TONE_DOT[JOB_STATUS[report.valu
 .grid { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .grid col.c-unit { width: 20%; }
 .grid col.c-money { width: 112px; }
-.grid col.c-day { width: 80px; }
+.grid col.c-day { width: 120px; }
 .grid col.c-due { width: 184px; }
 .grid col.c-contact { width: 216px; }
 .grid col.c-src { width: 88px; }
 .grid col.c-role { width: 96px; }
 .grid col.c-party { width: 24%; }
+.grid col.c-lang { width: 88px; }
+.grid col.c-points { width: 240px; }
 .grid th { height: 40px; padding: 0 16px; background: var(--canvas); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--ink-2); font-weight: 600; text-align: center; white-space: nowrap; }
 .grid th.sortable { cursor: pointer; user-select: none; }
 .grid th.sortable::after { content: ''; display: inline-block; margin-left: 6px; vertical-align: 2px; border: 4px solid transparent; border-top: 5px solid var(--ink-3); border-bottom: 0; }
@@ -237,6 +270,12 @@ a.name:hover { color: var(--accent); }
 .contact { display: flex; gap: 8px; overflow: hidden; }
 .who { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 7em; }
 .src { display: inline-flex; align-items: center; gap: 4px; }
+.table-scroll { width: 100%; overflow-x: auto; }
+.search-grid { min-width: 880px; }
+.search-grid td.c-day { min-width: 120px; }
+.purchase-list { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; line-height: 20px; }
+.purchase-list li { position: relative; overflow: hidden; padding-left: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.purchase-list li::before { content: ''; position: absolute; top: 8px; left: 1px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .more-rows { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 40px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
 .more-rows:hover { background: var(--canvas); color: var(--ink); }
 .flip { transform: rotate(180deg); }

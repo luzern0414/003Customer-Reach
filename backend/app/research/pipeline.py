@@ -186,6 +186,7 @@ class Run:
         """返回终态 completed / partial；Handover 与取消向上抛出。"""
         token = llm.USAGE.set(self.usage)
         self.browser = self.browser or await crawl.default_profile()
+        terminal_override = ''
         try:
             while True:
                 stages = STAGES[self.state['plan']['mode']] if 'plan' in self.state else ['understand']
@@ -218,12 +219,16 @@ class Run:
                     history.append(entry)
                     emit(self.job_id, 'stage.completed', entry)
                 self.save()
+                if stage == 'understand' and self.plan.needs_clarification:
+                    await self._clarify()
+                    terminal_override = 'awaiting_input'
+                    break
         finally:
             llm.USAGE.reset(token)
             for task_id in filter(None, self.pending_cancel):
                 await crawl.cancel(task_id)
         quality.rescore_leads()
-        return self.final_status()
+        return terminal_override or self.final_status()
 
     def final_status(self) -> str:
         """有结果、没有读取以外的问题、未读到的不超过已读篇数的四分之一时记为完成，否则为部分完成；问题照常列在报告里。"""
@@ -284,6 +289,9 @@ class Run:
             plan.regions = plan.regions or self.settings['target_regions']
             plan.exclusions = list(dict.fromkeys(plan.exclusions + self.settings['exclusions']))
             plan.keywords = plan.keywords[:6]
+            if plan.mode == 'search':
+                plan.query = plan.query or message.content
+                plan.questions = plan.questions[:3]
             info['summary'] = plan.title
         self.state['plan'] = plan.model_dump()
         with Session.begin() as db:
@@ -292,6 +300,20 @@ class Run:
                 conversation.title = plan.title
                 emit(self.job_id, 'title', {'title': plan.title})
             db.get(Job, self.job_id).mode = plan.mode
+
+    async def _clarify(self) -> None:
+        """澄清阶段只发送问题，搜索阶段的结果仍由报告表格承载。"""
+        questions = [question.strip() for question in self.plan.questions[:3] if question.strip()]
+        if not questions:
+            return
+        content = '\n'.join(questions)
+        with Session.begin() as db:
+            reply = Message(conversation_id=self.conversation_id, role='assistant', content=content, job_id=self.job_id)
+            db.add(reply)
+            db.flush()
+            db.get(Conversation, self.conversation_id).updated_at = now()
+        self.save(reply_message_id=reply.id)
+        emit(self.job_id, 'message.completed', {'message_id': reply.id, 'content': content})
 
     async def identify(self) -> None:
         """在百度企业信息中确认企业全称；多家相近时请用户选择。该页面同时作为工商资料来源。"""
@@ -854,7 +876,6 @@ class Run:
 
     async def answer(self) -> None:
         if self.plan.mode != 'chat':
-            await self._result_answer()
             return
         context = self._answer_context()
         with Session.begin() as db:
