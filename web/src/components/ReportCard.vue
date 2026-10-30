@@ -302,7 +302,7 @@ a.name:hover { color: var(--accent); }
 }
 @media (max-width: 900px) {
   .grid col.c-contact { width: 150px; }
-  .grid col.c-src, .grid th:last-child, .grid td:last-child { display: none; }
+  .grid:not(.search-grid) col.c-src, .grid:not(.search-grid) th:last-child, .grid:not(.search-grid) td:last-child { display: none; }
   .r-more-body { grid-template-columns: minmax(0, 1fr); }
   .quality { border-right: 0; border-bottom: 1px solid var(--line); }
 }

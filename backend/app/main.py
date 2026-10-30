@@ -156,6 +156,8 @@ def get_conversation(conversation_id: str, request: Request):
 async def send_message(conversation_id: str, body: MessageIn, request: Request):
     result = services.submit(conversation_id, body.content.strip(), body.attachment_ids, request.state.user,
                              body.mode, body.company, body.request_id)
+    if result.get('duplicate'):
+        return result
     if result.get('supplemented'):
         runner.replan(result['job']['id'])
     else:

@@ -111,7 +111,7 @@ def submit(conversation_id: str, content: str, attachment_ids: list[str], user: 
                 existing_job = db.get(Job, existing.job_id) if existing.job_id else None
                 if existing_job:
                     return {'message_id': existing.id, 'job': job_view(existing_job),
-                            'supplemented': existing_job.message_id != existing.id}
+                            'supplemented': existing_job.message_id != existing.id, 'duplicate': True}
         busy = db.scalar(select(Job).where(Job.conversation_id == conversation_id,
                                            Job.status.in_(['queued', 'running', 'awaiting_user', 'awaiting_input',
                                                            'replanning', 'paused', 'partial'])))

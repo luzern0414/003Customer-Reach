@@ -98,7 +98,7 @@ class Attachment(Base):
 
 
 class Job(Base):
-    """一次研究任务。status: queued/running/awaiting_user/paused/completed/partial/failed。"""
+    """一次研究任务。status: queued/running/replanning/awaiting_input/awaiting_user/paused/completed/partial/failed。"""
     __tablename__ = 'jobs'
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     conversation_id: Mapped[str] = mapped_column(ForeignKey('conversations.id', ondelete='CASCADE'), index=True)

@@ -54,17 +54,16 @@ def start(job_id: str) -> None:
 def pause(job_id: str) -> bool:
     task = _tasks.get(job_id)
     if task:
-        _replanning.add(job_id)
         task.cancel()
-        _tasks.pop(job_id, None)
         return True
     return False
 
 
 def replan(job_id: str) -> None:
     """取消当前执行并从理解阶段重算计划，保留已取得的来源与证据。"""
-    task = _tasks.get(job_id)
+    task = _tasks.pop(job_id, None)
     if task:
+        _replanning.add(job_id)
         task.cancel()
     with Session.begin() as db:
         job = db.get(Job, job_id)
@@ -72,7 +71,7 @@ def replan(job_id: str) -> None:
             return
         state = dict(job.plan or {})
         state['replan_from'] = 'understand'
-        state['done'] = [stage for stage in state.get('done', []) if stage == 'understand']
+        state['done'] = []
         job.plan = state
         job.status = 'replanning'
         job.stage = 'understand'

@@ -43,7 +43,9 @@ def test_active_message_becomes_supplement_and_does_not_consume_again(monkeypatc
     from app import runner
 
     started = []
+    replanned = []
     monkeypatch.setattr(runner, 'start', started.append)
+    monkeypatch.setattr(runner, 'replan', replanned.append)
     client = signed_in()
     conversation = client.post('/api/conversations').json()
     first = client.post(f'/api/conversations/{conversation["id"]}/messages',
@@ -54,13 +56,83 @@ def test_active_message_becomes_supplement_and_does_not_consume_again(monkeypatc
     assert second.status_code == 202
     assert second.json()['supplemented'] is True
     assert second.json()['job']['id'] == first.json()['job']['id']
-    assert started == [first.json()['job']['id'], first.json()['job']['id']]
+    assert started == [first.json()['job']['id']]
+    duplicate = client.post(f'/api/conversations/{conversation["id"]}/messages',
+                            json={'content': 'only English sources', 'request_id': 'r-second'})
+    assert duplicate.status_code == 202
+    assert duplicate.json()['duplicate'] is True
+    assert replanned == [first.json()['job']['id']]
+
+
+def test_replan_clears_completed_stages_and_restarts(monkeypatch):
+    from app import runner
+    from app.db import Conversation, Job, Message, Session
+
+    with Session.begin() as db:
+        conversation = Conversation(title='重规划测试')
+        db.add(conversation)
+        db.flush()
+        message = Message(conversation_id=conversation.id, role='user', content='search AI safety')
+        db.add(message)
+        db.flush()
+        job = Job(conversation_id=conversation.id, message_id=message.id, mode='search', status='running', plan={
+            'plan': {'mode': 'search', 'title': 'AI safety', 'query': 'AI safety'},
+            'done': ['understand', 'web_plan', 'web_discover'],
+            'search_candidates': [{'url': 'https://example.com'}],
+        })
+        db.add(job)
+        db.flush()
+        job_id = job.id
+
+    class FakeTask:
+        def __init__(self):
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    task = FakeTask()
+    started = []
+    monkeypatch.setattr(runner, '_tasks', {job_id: task})
+    monkeypatch.setattr(runner, '_replanning', set())
+    monkeypatch.setattr(runner, 'start', started.append)
+    runner.replan(job_id)
+
+    assert task.cancelled is True
+    assert started == [job_id]
+    with Session() as db:
+        refreshed = db.get(Job, job_id)
+        assert refreshed.status == 'replanning'
+        assert refreshed.stage == 'understand'
+        assert refreshed.plan['done'] == []
+
+
+def test_pause_cancels_without_marking_replan(monkeypatch):
+    from app import runner
+
+    class FakeTask:
+        def __init__(self):
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    task = FakeTask()
+    monkeypatch.setattr(runner, '_tasks', {'job-1': task})
+    monkeypatch.setattr(runner, '_replanning', set())
+
+    assert runner.pause('job-1') is True
+    assert task.cancelled is True
+    assert 'job-1' in runner._tasks
+    assert 'job-1' not in runner._replanning
 
 
 def test_duplicate_request_id_returns_same_message(monkeypatch):
     from app import runner
 
-    monkeypatch.setattr(runner, 'start', lambda job_id: None)
+    started, replanned = [], []
+    monkeypatch.setattr(runner, 'start', started.append)
+    monkeypatch.setattr(runner, 'replan', replanned.append)
     client = signed_in()
     conversation = client.post('/api/conversations').json()
     body = {'content': 'find papers about retrieval', 'request_id': 'same-request'}
@@ -68,6 +140,9 @@ def test_duplicate_request_id_returns_same_message(monkeypatch):
     second = client.post(f'/api/conversations/{conversation["id"]}/messages', json=body).json()
     assert second['message_id'] == first['message_id']
     assert second['job']['id'] == first['job']['id']
+    assert second['duplicate'] is True
+    assert started == [first['job']['id']]
+    assert replanned == []
 
 
 def test_search_report_has_rows_and_no_paragraph_reply():
