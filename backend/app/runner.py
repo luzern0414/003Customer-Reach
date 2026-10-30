@@ -11,6 +11,7 @@ from .research.pipeline import Handover, Run
 
 log = logging.getLogger('dealradar.runner')
 _tasks: dict[str, asyncio.Task] = {}
+_replanning: set[str] = set()
 FAILURE_TEXT = {'ValueError': '模型配置无效或返回格式错误', 'CrawlError': '采集工具不可用，请检查 LuzCrawl'}
 
 
@@ -33,13 +34,16 @@ async def _run(job_id: str) -> None:
     except Handover as exc:
         _status(job_id, 'awaiting_user', handover=exc.data)
     except asyncio.CancelledError:
-        _status(job_id, 'paused')
+        if job_id not in _replanning:
+            _status(job_id, 'paused')
         raise
     except Exception as exc:  # 任务失败要落库并通知前端，不能让后台任务静默结束
         log.exception('job %s failed', job_id)
         _status(job_id, 'failed', finished_at=now(), error=FAILURE_TEXT.get(type(exc).__name__, '') or str(exc)[:300])
     finally:
-        _tasks.pop(job_id, None)
+        if _tasks.get(job_id) is asyncio.current_task():
+            _tasks.pop(job_id, None)
+            _replanning.discard(job_id)
 
 
 def start(job_id: str) -> None:
@@ -50,7 +54,9 @@ def start(job_id: str) -> None:
 def pause(job_id: str) -> bool:
     task = _tasks.get(job_id)
     if task:
+        _replanning.add(job_id)
         task.cancel()
+        _tasks.pop(job_id, None)
         return True
     return False
 

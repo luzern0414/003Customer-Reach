@@ -21,6 +21,25 @@ test('登录后进入工作台，概览不重复页面标题', async ({ page }) 
   await expect(page.locator('.page-title', { hasText: '概览' })).toHaveCount(0)
 })
 
+test('全局侧栏把会话历史放在系统设置下方', async ({ page }) => {
+  await page.goto('/workbench')
+  const side = page.locator('.side')
+  await expect(side).toContainText('系统设置')
+  await expect(side).toContainText('会话历史')
+  const text = await side.innerText()
+  expect(text.indexOf('系统设置')).toBeLessThan(text.indexOf('会话历史'))
+  await expect(page.locator('.wb .convs')).toHaveCount(0)
+})
+
+test('执行中仍可补充条件', async ({ page }) => {
+  const list = await (await page.request.get('/api/conversations')).json()
+  const active = list.find((item: { status: string }) => ['queued', 'running', 'replanning'].includes(item.status))
+  test.skip(!active, '本机没有执行中的任务')
+  await page.goto(`/c/${active.id}`)
+  await expect(page.locator('textarea')).toBeEnabled()
+  await expect(page.locator('button[title="补充条件"]')).toBeEnabled()
+})
+
 test('研究报告表格在对话区全宽展示全部列', async ({ page }) => {
   const list = await (await page.request.get('/api/conversations')).json()
   let target = ''
@@ -39,6 +58,22 @@ test('研究报告表格在对话区全宽展示全部列', async ({ page }) => 
   expect(fits).toBe(true)
   await table.locator('th', { hasText: '预算（万元）' }).click()
   await expect(table.locator('th.sortable.on')).toHaveCount(1)
+})
+
+test('报告日期列保持完整宽度', async ({ page }) => {
+  await page.goto('/workbench')
+  const dateCell = page.locator('.report .c-day').first()
+  if (await dateCell.count()) await expect(dateCell).toHaveCSS('min-width', '120px')
+})
+
+test('移动端报告表格可横向滚动', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/workbench')
+  const report = page.locator('.report').first()
+  if (await report.count()) {
+    const table = report.locator('.table-scroll').first()
+    if (await table.count()) expect(await table.evaluate((el) => el.scrollWidth >= el.clientWidth)).toBe(true)
+  }
 })
 
 test('线索默认只看可投标，可切换并修改状态', async ({ page }) => {

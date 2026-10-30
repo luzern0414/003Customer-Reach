@@ -8,14 +8,13 @@ import { api, get, post } from '../api'
 import type { Attachment, CompanyCard, Conversation, ConversationItem, Job, ToolCall } from '../types'
 import { emptyJob, followJob, isTerminal, type JobState } from '../jobStream'
 import { configureMarkdown, displayMarkdown } from '../markdown'
-import { JOB_STATUS, LEAD_STATUS, dayGroup, duration } from '../format'
+import { JOB_STATUS, LEAD_STATUS, duration } from '../format'
 import Icon from '../components/Icon.vue'
 import ReportCard from '../components/ReportCard.vue'
 import { exhausted, loadMe } from '../session'
 
 const route = useRoute()
 const router = useRouter()
-const conversations = ref<ConversationItem[]>([])
 const conversation = ref<Conversation | null>(null)
 const loading = ref(false)
 const loadError = ref('')
@@ -27,18 +26,6 @@ const uploading = ref(false)
 const sending = ref(false)
 const choice = ref('')
 const showSteps = ref(false)
-const showList = ref(false)
-// 宽屏的历史对话栏可收起，选择记在本机；未选择过时 1600 以下默认收起，让研究报告的表格有足够宽度
-const listOpen = ref(readListPref())
-function readListPref() {
-  try { const v = localStorage.getItem('dr.convs'); if (v) return v === 'open' } catch { /* 本机存储不可用 */ }
-  return window.innerWidth >= 1600
-}
-function toggleList() {
-  if (window.innerWidth <= 840) { showList.value = true; return }
-  listOpen.value = !listOpen.value
-  try { localStorage.setItem('dr.convs', listOpen.value ? 'open' : 'closed') } catch { /* 本机存储不可用 */ }
-}
 const showArtifacts = ref(false)
 const scroller = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -54,21 +41,27 @@ const EXAMPLES = [
 ]
 const TOOL_ICON: Record<string, string> = {
   understand: 'spark', search_company: 'company', search_notices: 'search', screen: 'flag', read_notices: 'doc',
-  extract_notice: 'check', read_profile: 'company', extract_profile: 'check',
+  extract_notice: 'check', read_profile: 'company', extract_profile: 'check', web_plan: 'spark', web_discover: 'search',
+  web_search: 'search', web_read: 'doc', web_extract: 'check', web_verify: 'check',
 }
+const TOOL_STATUS: Record<string, { label: string; tone: string }> = {
+  queued: { label: '排队中', tone: 'grey' },
+  running: { label: '进行中', tone: 'brand' },
+  captured: { label: '已取得', tone: 'ok' },
+  completed: { label: '已完成', tone: 'ok' },
+  partial: { label: '部分完成', tone: 'signal' },
+  awaiting_user: { label: '等待处理', tone: 'warn' },
+  awaiting_input: { label: '等待补充', tone: 'warn' },
+  replanning: { label: '重新规划', tone: 'brand' },
+  blocked: { label: '受限', tone: 'danger' },
+  failed: { label: '失败', tone: 'danger' },
+  skipped: { label: '已跳过', tone: 'grey' },
+}
+function toolState(status: string) { return TOOL_STATUS[status] || { label: status || '处理中', tone: 'grey' } }
 
 const conversationId = computed(() => (route.params.id as string) || '')
 const latestJob = computed<Job | null>(() => conversation.value?.jobs.at(-1) || null)
-const busy = computed(() => !!live.value && ['queued', 'running'].includes(live.value.status))
-const grouped = computed(() => {
-  const groups: Record<string, ConversationItem[]> = {}
-  for (const item of conversations.value) (groups[dayGroup(item.updated_at)] ||= []).push(item)
-  return ['今天', '昨天', '更早'].filter((g) => groups[g]).map((g) => ({ name: g, items: groups[g] }))
-})
-
-async function loadList() {
-  conversations.value = await get<ConversationItem[]>('/conversations').catch(() => conversations.value)
-}
+const busy = computed(() => !!live.value && ['queued', 'running', 'replanning'].includes(live.value.status))
 
 async function loadConversation(id: string) {
   stopFollow?.()
@@ -105,7 +98,6 @@ async function refreshConversation() {
   if (!conversationId.value) return
   const data = await api<Conversation>(`/conversations/${conversationId.value}`, { notify: false }).catch(() => null)
   if (data) conversation.value = data
-  loadList()
   if (latestJob.value) loadResults(latestJob.value.id)
 }
 
@@ -116,7 +108,7 @@ async function loadResults(jobId: string) {
 watch(() => live.value?.resultVersion, () => { if (live.value) loadResults(live.value.id) })
 watch(() => live.value?.draft, () => scrollBottom(true))
 watch(() => live.value?.tools.length, () => scrollBottom(true))
-watch(() => live.value?.title, (title) => { if (title && conversation.value) { conversation.value.title = title; loadList() } })
+watch(() => live.value?.title, (title) => { if (title && conversation.value) conversation.value.title = title })
 watch(conversationId, (id) => loadConversation(id))
 
 async function scrollBottom(onlyIfNear = false) {
@@ -135,14 +127,17 @@ async function newConversation() {
 
 async function send() {
   const content = input.value.trim()
-  if (!content || busy.value || sending.value || exhausted()) return
+  if (!content || sending.value || exhausted()) return
   sending.value = true
   try {
     let id = conversationId.value
     if (!id) {
       id = (await post<ConversationItem>('/conversations')).id
     }
-    const result = await post<{ job: Job }>(`/conversations/${id}/messages`, { content, attachment_ids: files.value.map((f) => f.id) })
+    const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+    const result = await post<{ job: Job; supplemented?: boolean }>(`/conversations/${id}/messages`, {
+      content, attachment_ids: files.value.map((f) => f.id), request_id: requestId,
+    })
     input.value = ''
     files.value = []
     loadMe()
@@ -150,6 +145,7 @@ async function send() {
       await router.push(`/c/${id}`)
     } else {
       await refreshConversation()
+      stopFollow?.()
       startFollow(result.job)
     }
     await scrollBottom()
@@ -202,6 +198,10 @@ function copy(text: string) {
 function jobOf(messageJobId: string | null): Job | undefined {
   return conversation.value?.jobs.find((j) => j.id === messageJobId)
 }
+function isJobTail(message: { id: string; job_id: string | null }): boolean {
+  const messages = conversation.value?.messages.filter((item) => item.job_id === message.job_id && item.role === 'user') || []
+  return messages.at(-1)?.id === message.id
+}
 function isLive(jobId: string | null) {
   return !!live.value && live.value.id === jobId
 }
@@ -229,35 +229,15 @@ const toolSummary = (j: JobState) => {
 }
 const roleLabel = { target: '目标企业', buyer: '采购方', related: '相关' }
 
-function onEsc(event: KeyboardEvent) { if (event.key === 'Escape') { showArtifacts.value = false; showList.value = false } }
-onMounted(() => { loadMe(); loadList(); loadConversation(conversationId.value); window.addEventListener('keydown', onEsc) })
+function onEsc(event: KeyboardEvent) { if (event.key === 'Escape') showArtifacts.value = false }
+onMounted(() => { loadMe(); loadConversation(conversationId.value); window.addEventListener('keydown', onEsc) })
 onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.removeEventListener('keydown', onEsc) })
 </script>
 
 <template>
   <div class="wb">
-    <aside class="convs" :class="{ open: showList, collapsed: !listOpen }">
-      <div class="convs-head">
-        <el-button type="primary" class="new" data-action-id="A-101" @click="newConversation"><Icon name="plus" :size="16" /><span>新建对话</span></el-button>
-      </div>
-      <div class="convs-body">
-        <template v-for="g in grouped" :key="g.name">
-          <div class="convs-group">{{ g.name }}</div>
-          <RouterLink v-for="c in g.items" :key="c.id" :to="`/c/${c.id}`" class="conv" data-action-id="A-102"
-                      :class="{ on: c.id === conversationId }" @click="showList = false">
-            <span class="conv-title">{{ c.title }}</span>
-            <span v-if="c.status === 'running' || c.status === 'queued'" class="conv-dot run" aria-label="运行中" />
-            <span v-else-if="c.status === 'awaiting_user'" class="tag warn">等待处理</span>
-          </RouterLink>
-        </template>
-        <div v-if="!conversations.length" class="muted conv-empty">还没有对话</div>
-      </div>
-    </aside>
-    <div v-if="showList" class="wb-mask" @click="showList = false" />
-
     <section class="chat">
       <header class="chat-head">
-        <button type="button" class="icon-btn" :aria-label="listOpen ? '收起历史对话' : '展开历史对话'" :title="listOpen ? '收起历史对话' : '展开历史对话'" @click="toggleList"><Icon name="sidebar" :size="18" /></button>
         <span class="chat-title">{{ conversation?.title || '获客工作台' }}</span>
         <button type="button" class="icon-btn" aria-label="本次产物" title="本次产物" @click="showArtifacts = !showArtifacts"><Icon name="company" :size="18" /></button>
       </header>
@@ -289,9 +269,9 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
               <span class="agent-mark" aria-hidden="true"><Icon name="spark" :size="16" /></span>
               <div class="agent-body">
               <!-- 研究过程：当前任务实时，历史任务显示汇总 -->
-              <div v-if="isLive(m.job_id) && live" class="proc">
+              <div v-if="isLive(m.job_id) && live && isJobTail(m)" class="proc" :class="live.status">
                 <div class="proc-head">
-                  <span class="stage"><span v-if="busy" class="conv-dot run" />{{ busy ? (live.stageLabel || '准备中') : JOB_STATUS[live.status].label }}</span>
+                  <span class="stage"><span class="state-label" :class="JOB_STATUS[live.status].tone"><span class="stage-dot" :class="live.status" />{{ busy ? (live.stageLabel || '准备中') : JOB_STATUS[live.status].label }}</span></span>
                   <span class="muted small">{{ busy ? `已用 ${duration((live.metrics.elapsed_ms || 0) + now - live.syncedAt)}` : toolSummary(live) }}<template v-if="busy && live.progress.to_read"> · 待读 {{ live.progress.to_read }} 篇</template></span>
                 </div>
                 <!-- 步骤默认折叠；进行中时折叠行显示正在进行的一步与实时已用时 -->
@@ -306,6 +286,7 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
                   <summary>
                     <span class="tool-icon" :class="t.status"><Icon :name="TOOL_ICON[t.tool] || 'doc'" :size="16" /></span>
                     <span class="tool-name">{{ t.label }}</span>
+                    <span class="tool-status" :class="toolState(t.status).tone">{{ toolState(t.status).label }}</span>
                     <span class="tool-meta num">{{ [t.status === 'running' ? '' : t.count !== undefined ? `${t.count} 条` : t.summary, toolTime(t)].filter(Boolean).join(' · ') }}</span>
                   </summary>
                   <div class="tool-body">
@@ -314,12 +295,22 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
                     <a v-if="t.url" :href="t.url" target="_blank" rel="noopener" data-action-id="A-105"><Icon name="external" :size="14" />{{ t.url }}</a>
                   </div>
                 </details>
+                <div v-if="live.path.length" class="path-table-wrap">
+                  <table class="path-table">
+                    <thead><tr><th>阶段</th><th>查询/来源</th><th>状态</th><th>耗时</th><th>结果数</th><th>失败原因</th></tr></thead>
+                    <tbody><tr v-for="item in live.path" :key="item.stage">
+                      <td>{{ item.label || item.stage }}</td><td class="path-source" :title="item.url || item.query || item.source || ''">{{ item.query || item.source || item.url || '—' }}</td>
+                      <td><span class="tool-status" :class="toolState(item.status).tone">{{ toolState(item.status).label }}</span></td>
+                      <td class="num">{{ item.elapsed_ms ? duration(item.elapsed_ms) : '—' }}</td><td class="num">{{ item.count ?? '—' }}</td><td class="danger-text">{{ item.error || '—' }}</td>
+                    </tr></tbody>
+                  </table>
+                </div>
               </div>
-              <div v-else-if="jobOf(m.job_id)" class="proc compact"><span class="tag" :class="JOB_STATUS[jobOf(m.job_id)!.status].tone">{{ JOB_STATUS[jobOf(m.job_id)!.status].label }}</span>
+              <div v-else-if="jobOf(m.job_id) && isJobTail(m)" class="proc compact" :class="jobOf(m.job_id)!.status"><span class="tag" :class="JOB_STATUS[jobOf(m.job_id)!.status].tone">{{ JOB_STATUS[jobOf(m.job_id)!.status].label }}</span>
                 <span class="muted small">用时 {{ duration(jobOf(m.job_id)!.metrics.elapsed_ms) }}</span></div>
 
               <!-- 交接卡 -->
-              <div v-if="isLive(m.job_id) && live?.status === 'awaiting_user'" class="handover">
+              <div v-if="isLive(m.job_id) && live?.status === 'awaiting_user' && isJobTail(m)" class="handover">
                 <template v-if="live.handover.kind === 'identity'">
                   <div class="ho-title">选择要研究的企业</div>
                   <el-radio-group v-model="choice" class="ho-choices">
@@ -352,7 +343,7 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
               </div>
 
               <!-- 暂停、部分完成、失败 -->
-              <div v-if="isLive(m.job_id) && live && ['paused', 'failed', 'partial'].includes(live.status)" class="result-line" :class="live.status">
+              <div v-if="isLive(m.job_id) && live && ['paused', 'failed', 'partial'].includes(live.status) && isJobTail(m)" class="result-line" :class="live.status">
                 <Icon :name="live.status === 'failed' ? 'alert' : 'stop'" :size="16" />
                 <span>{{ live.status === 'failed' ? (live.error || '研究失败') : live.status === 'paused' ? `已暂停在“${live.stageLabel || live.stage}”` : '部分站点或步骤未完成' }}</span>
                 <RouterLink v-if="live.status === 'failed' && /采集/.test(live.error)" to="/sources">查看数据源</RouterLink>
@@ -361,7 +352,7 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
               </div>
               </div>
               <!-- 研究报告：对话文字保持 760 宽，报告按对话区全宽展开 -->
-              <div v-if="showReport(m.job_id)" class="wide"><ReportCard :job-id="m.job_id!" :version="isLive(m.job_id) ? live?.resultVersion : 0" /></div>
+              <div v-if="showReport(m.job_id) && isJobTail(m)" class="wide"><ReportCard :job-id="m.job_id!" :version="isLive(m.job_id) ? live?.resultVersion : 0" /></div>
             </template>
           </template>
         </div>
@@ -373,13 +364,13 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
             <el-tag v-for="f in files" :key="f.id" closable data-action-id="A-112" @close="files = files.filter((x) => x.id !== f.id)">{{ f.filename }}</el-tag>
           </div>
           <div class="input-box">
-            <button type="button" class="icon-btn" title="上传资料" aria-label="上传资料" :disabled="uploading || busy || exhausted()" data-action-id="A-111" @click="fileInput?.click()">
+            <button type="button" class="icon-btn" title="上传资料" aria-label="上传资料" :disabled="uploading || exhausted()" data-action-id="A-111" @click="fileInput?.click()">
               <Icon name="attach" />
             </button>
             <input ref="fileInput" type="file" hidden multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" @change="upload" />
-            <textarea v-model="input" rows="1" maxlength="8000" :disabled="busy || exhausted()" :placeholder="exhausted() ? '使用次数已用完' : '描述你的产品，或输入企业名称'" @keydown="onKey" />
+            <textarea v-model="input" rows="1" maxlength="8000" :disabled="exhausted()" :placeholder="exhausted() ? '使用次数已用完' : busy ? '补充条件，任务会重新规划' : '描述你的产品，或输入企业名称'" @keydown="onKey" />
             <button v-if="busy" type="button" class="send stop" title="停止" aria-label="停止" data-action-id="A-110" @click="stop"><Icon name="stop" :size="16" /></button>
-            <button v-else type="button" class="send" title="发送" aria-label="发送" :disabled="!input.trim() || sending || exhausted()" data-action-id="A-109" @click="send"><Icon name="send" :size="16" /></button>
+            <button type="button" class="send" :title="busy ? '补充条件' : '发送'" :aria-label="busy ? '补充条件' : '发送'" :disabled="!input.trim() || sending || exhausted()" data-action-id="A-109" @click="send"><Icon name="send" :size="16" /></button>
           </div>
           <div v-if="uploading" class="muted small">正在解析资料…</div>
         </div>
@@ -405,20 +396,6 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
 
 <style scoped>
 .wb { display: flex; flex: 1; height: 100%; min-height: 0; background: var(--surface); }
-.convs { width: 248px; flex: none; border-right: 1px solid var(--line); display: flex; flex-direction: column; background: var(--canvas); }
-.convs.collapsed { display: none; }
-.convs-head { padding: 12px 10px 8px; }
-.new { width: 100%; }
-.convs-body { flex: 1; overflow-y: auto; padding: 0 8px 16px; }
-.convs-group { font-size: 12px; color: var(--ink-3); padding: 12px 8px 4px; }
-.conv { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; color: var(--ink-2); font-size: 14px; }
-.conv:hover { background: var(--subtle); color: var(--ink); }
-.conv.on { background: var(--surface); border-color: var(--line); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
-.conv-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conv-empty { padding: 16px 8px; }
-.conv-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #a1a1aa; flex: none; }
-.conv-dot.run { background: var(--accent); animation: pulse 1.2s infinite; }
-@keyframes pulse { 50% { opacity: .35; } }
 .chat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .chat-head { display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 12px; border-bottom: 1px solid var(--line); flex: none; }
 .chat-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -443,28 +420,59 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
 .agent-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .umsg { align-self: flex-end; max-width: 85%; padding: 8px 14px; border-radius: 12px; background: var(--subtle); font-size: 16px; line-height: 26px; white-space: pre-wrap; }
 .files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.proc { border: 1px solid var(--line); border-radius: 8px; padding: 0 12px 6px; font-size: 14px; background: var(--surface); }
+.proc { border: 1px solid var(--line); border-radius: 8px; padding: 0 12px 6px; font-size: 14px; background: var(--surface); transition: background-color .16s ease; }
+.proc.queued { background: #fbfbfc; }
+.proc.running { background: #f8faff; }
+.proc.replanning { background: var(--accent-tint); }
+.proc.awaiting_user { background: var(--warn-tint); }
+.proc.awaiting_input { background: var(--warn-tint); }
+.proc.completed { background: #f8fff9; }
+.proc.partial { background: #fffaf5; }
+.proc.failed { background: #fffafa; }
+.proc.paused { background: var(--subtle); }
 .proc.compact { display: flex; gap: 8px; align-items: center; padding: 8px 12px; }
 .proc-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 40px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .stage { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); }
+.state-label, .tool-status { display: inline-flex; align-items: center; gap: 6px; border-radius: 5px; padding: 2px 7px; font-size: 12px; line-height: 18px; font-weight: 600; white-space: nowrap; }
+.state-label.brand, .tool-status.brand { color: var(--accent-hover); background: var(--accent-tint); }
+.state-label.signal, .tool-status.signal { color: #9a3412; background: var(--signal-tint); }
+.state-label.warn, .tool-status.warn { color: var(--warn); background: var(--warn-tint); }
+.state-label.danger, .tool-status.danger { color: var(--danger); background: var(--danger-tint); }
+.state-label.ok, .tool-status.ok { color: var(--ok); background: var(--ok-tint); }
+.state-label.grey, .tool-status.grey { color: var(--ink-2); background: var(--subtle); }
+.stage-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #a1a1aa; flex: none; }
+.stage-dot.queued { background: #71717a; }
+.stage-dot.running { background: var(--accent); animation: pulse 1.2s infinite; }
+.stage-dot.awaiting_user { background: var(--warn); }
+.stage-dot.awaiting_input { background: var(--warn); }
+.stage-dot.replanning { background: var(--accent); animation: pulse 1.2s infinite; }
+.stage-dot.completed { background: var(--ok); }
+.stage-dot.partial { background: var(--signal); }
+.stage-dot.failed { background: var(--danger); }
+.stage-dot.paused { background: #71717a; }
 .steps-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 6px 0 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 14px; cursor: pointer; }
 .steps-toggle:hover { color: var(--ink); }
 .tool summary { display: flex; align-items: center; gap: 10px; min-height: 36px; cursor: pointer; list-style: none; }
 .now-line { display: flex; align-items: center; gap: 10px; min-height: 36px; }
 .now-more { margin-left: 8px; font-size: 12px; color: var(--ink-3); }
 .tool-meta.num { font-variant-numeric: tabular-nums; }
-.tool-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); color: var(--ink-3); flex: none; }
-.tool-icon.running { color: var(--accent); border-color: var(--line-strong); animation: pulse 1.2s infinite; }
-.tool-icon.failed, .tool-icon.blocked { color: var(--danger); border-color: #fecaca; }
-.tool-icon.awaiting_user { color: var(--warn); border-color: #fde68a; }
+.tool-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); color: var(--ink-3); background: var(--surface); flex: none; transition: color .16s ease; }
+.tool-icon.running { color: var(--accent); animation: pulse 1.2s infinite; }
+.tool-icon.failed, .tool-icon.blocked { color: var(--danger); }
+.tool-icon.awaiting_user { color: var(--warn); }
 .tool-icon.captured, .tool-icon.completed { color: var(--ok); }
 .tool summary::-webkit-details-marker { display: none; }
 .tool-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 .tool-meta { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .tool-body { padding: 0 0 8px 34px; color: var(--ink-2); font-size: 14px; word-break: break-all; }
 .tool-body a { display: inline-flex; gap: 4px; align-items: center; }
+.path-table-wrap { margin: 8px 0 4px; overflow-x: auto; border-top: 1px solid var(--line); }
+.path-table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 12px; line-height: 20px; }
+.path-table th { height: 32px; padding: 0 8px; background: var(--canvas); color: var(--ink-3); font-weight: 600; text-align: left; white-space: nowrap; }
+.path-table td { height: 36px; padding: 0 8px; border-top: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
+.path-table .path-source { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .danger-text { color: var(--danger); }
-.handover { border: 1px solid #fde68a; background: var(--warn-tint); border-radius: 12px; padding: 14px 16px; }
+.handover { border: 1px solid var(--line); background: var(--warn-tint); border-radius: 12px; padding: 14px 16px; }
 .ho-title { font-size: 16px; font-weight: 600; }
 .ho-body { margin: 4px 0 12px; color: var(--ink-2); }
 .ho-choices { display: flex; flex-direction: column; align-items: flex-start; margin: 8px 0 12px; }
@@ -475,8 +483,10 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
 .answer :deep(table) { font-size: 14px; }
 .answer-tools { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .elapsed { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-3); }
-.result-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-2); }
-.result-line.failed { border-color: #fecaca; background: var(--danger-tint); color: var(--danger); }
+.result-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-2); transition: background-color .16s ease, color .16s ease; }
+.result-line.paused { background: var(--subtle); }
+.result-line.partial { background: var(--signal-tint); color: #9a3412; }
+.result-line.failed { background: var(--danger-tint); color: var(--danger); }
 .result-line > span { flex: 1; min-width: 0; }
 .composer { flex: none; padding: 12px 16px 16px; }
 .column { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
@@ -497,11 +507,6 @@ onBeforeUnmount(() => { stopFollow?.(); window.clearInterval(ticker); window.rem
 @media (max-width: 1199px) {
   .art-mask { display: block; position: fixed; inset: 0; z-index: 24; background: rgba(0, 0, 0, .3); }
   .artifacts { position: fixed; z-index: 25; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 24px)); max-height: 80vh; border: 0; border-radius: 12px; box-shadow: var(--shadow-pop); }
-}
-@media (max-width: 840px) {
-  .convs, .convs.collapsed { display: flex; position: fixed; z-index: 25; inset: 0 auto 0 0; width: 280px; transform: translateX(-100%); transition: transform .2s; }
-  .convs.open { transform: none; }
-  .wb-mask { display: block; position: fixed; inset: 0; z-index: 24; background: rgba(0, 0, 0, .3); }
 }
 @media (max-width: 760px) {
   .examples { grid-template-columns: minmax(0, 1fr); }

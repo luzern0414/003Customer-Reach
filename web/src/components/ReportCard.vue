@@ -160,7 +160,8 @@ function host(url: string): string {
     <button v-if="buyersMode && buyers.length > FIRST" type="button" class="more-rows" @click="showAll = !showAll">
       <Icon name="down" :size="16" :class="{ flip: showAll }" />{{ showAll ? '收起' : `显示其余 ${buyers.length - FIRST} 家` }}</button>
 
-    <table v-if="!buyersMode && report.records.length" class="grid" data-pagination="none">
+    <div v-if="!buyersMode && report.records.length" class="table-scroll">
+    <table class="grid" data-pagination="none">
       <colgroup><col class="c-day"><col><col class="c-role"><col class="c-party"><col class="c-money"></colgroup>
       <thead><tr><th>日期</th><th>公告</th><th>角色</th><th>对方</th><th>金额（万元）</th></tr></thead>
       <tbody>
@@ -173,6 +174,7 @@ function host(url: string): string {
         </tr>
       </tbody>
     </table>
+    </div>
 
     <div v-if="searchMode" class="table-scroll search-results">
       <table class="grid search-grid" data-pagination="none">
@@ -253,6 +255,7 @@ function host(url: string): string {
 .grid th.sortable.on::after { border-top-color: var(--ink); }
 .grid th.sortable.asc::after { border-top: 0; border-bottom: 5px solid var(--ink); vertical-align: 3px; }
 .grid td { height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid td.c-day { min-width: 120px; }
 .grid tbody tr:hover td { background: var(--canvas); }
 .grid td.l { text-align: left; }
 .grid td.c { text-align: center; }

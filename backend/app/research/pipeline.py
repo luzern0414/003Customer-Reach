@@ -260,8 +260,9 @@ class Run:
     async def understand(self) -> None:
         with Session() as db:
             message = db.get(Message, self.message_id)
-            task_messages = list(db.scalars(select(Message).where(Message.job_id == self.job_id,
-                                                                  Message.role == 'user').order_by(Message.created_at)))
+            supplement_ids = [item.get('message_id') for item in self.state.get('supplements', []) if item.get('message_id')]
+            task_messages = [db.get(Message, message_id) for message_id in [self.message_id, *supplement_ids]]
+            task_messages = [item for item in task_messages if item and item.role == 'user']
             history = list(db.scalars(select(Message).where(Message.conversation_id == self.conversation_id,
                                                             Message.id != self.message_id)
                                       .order_by(Message.created_at.desc()).limit(6)))
@@ -278,7 +279,9 @@ class Run:
             '最近对话：\n' + '\n'.join(f'{m.role}: {m.content[:300]}' for m in reversed(history)) if history else '',
             attachments,
             f'今天是 {date.today().isoformat()}。\n{request_text}',
-            '请判断研究模式并给出研究计划。追问已有结果、问候、解释类问题用 chat。']))
+            '请判断研究模式并给出研究计划。明确要找任意网站、论文、英文资料或一般网页信息时用 search；'
+            '只有明确要找采购买家时用 find_buyers，明确查询企业档案时用 company，追问已有结果、问候、解释类问题用 chat。'
+            '信息不足以安全规划检索时设 needs_clarification=true，并只提出最多三个必要问题，不启动搜索。']))
         async with self.tool('understand', '理解需求') as info:
             plan = await llm.structured(Plan, prompt)
             if self.state.get('mode_hint') in STAGES:
@@ -903,28 +906,8 @@ class Run:
         emit(self.job_id, 'message.completed', {'message_id': reply_id, 'content': content})
 
     async def _result_answer(self) -> None:
-        """研究类任务不让模型写长文：用已核验的数据生成一句结论，完整结果表由研究报告卡展示。"""
-        with Session() as db:
-            rows = db.execute(select(JobCompany.role, func.count()).where(JobCompany.job_id == self.job_id)
-                              .group_by(JobCompany.role)).all()
-        roles = dict(rows)
-        if self.plan.mode == 'company':
-            content = (f'已整理 {self.plan.company} 的工商信息、采购与中标记录，涉及 {sum(roles.values()) - roles.get("target", 0)} 家相关单位，结果见下表。'
-                       if roles.get('target') else f'没有找到与 {self.plan.company} 对应的企业。')
-        else:
-            buyers = roles.get('buyer', 0)
-            content = (f'找到 {buyers} 家正在或近期采购的单位，结果见下表。' if buyers else
-                       '这次没有找到与需求相符的采购公告，可以换个说法或放宽时间范围再试。')
-        if self.problems:
-            content += f' 有 {len(self.problems)} 项未完成，详见下方。'
-        with Session.begin() as db:
-            reply = Message(conversation_id=self.conversation_id, role='assistant', content=content, job_id=self.job_id)
-            db.add(reply)
-            db.flush()
-            reply_id = reply.id
-            db.get(Conversation, self.conversation_id).updated_at = now()
-        self.save(reply_message_id=reply_id)
-        emit(self.job_id, 'message.completed', {'message_id': reply_id, 'content': content})
+        """研究类任务的结果由报告表呈现，不生成段落式助手消息。"""
+        return
 
     def _answer_context(self) -> dict:
         plan = self.plan

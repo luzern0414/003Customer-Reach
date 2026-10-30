@@ -4,6 +4,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useRoute, useRouter } from 'vue-router'
 import Avatar from './components/Avatar.vue'
 import Icon from './components/Icon.vue'
+import ConversationHistory from './components/ConversationHistory.vue'
 import { session, signOut } from './session'
 
 const route = useRoute()
@@ -51,6 +52,7 @@ watch(() => route.fullPath, () => { drawer.value = false })
           </RouterLink>
         </div>
       </nav>
+      <ConversationHistory @close="drawer = false" />
       <el-dropdown v-if="session.me" trigger="click" placement="top-start" class="account-drop" @command="logout">
         <button type="button" class="account" aria-label="账号菜单">
           <Avatar :seed="session.me.id" />

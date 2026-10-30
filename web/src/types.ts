@@ -68,6 +68,32 @@ export interface ToolCall {
   startedAt?: number   // 步骤开始的本地毫秒时间
 }
 
+export interface StagePath {
+  stage: string
+  label?: string
+  status: string
+  query?: string
+  source?: string
+  url?: string
+  elapsed_ms?: number
+  count?: number
+  error?: string
+  ts?: string
+}
+
+export interface SearchRow {
+  status: string
+  title: string
+  url: string
+  domain?: string
+  language: string
+  published_on?: string
+  summary?: string
+  points?: string[]
+  quote?: string
+  source_id?: string
+}
+
 export interface CompanyCard {
   id: string
   name: string

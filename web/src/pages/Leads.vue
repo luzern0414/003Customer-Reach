@@ -34,6 +34,15 @@ const RANGES = [{ v: 'today', l: '今日' }, { v: '7', l: '近 7 天' }, { v: '3
 const STATUSES = Object.entries(LEAD_STATUS) as [LeadStatus, { label: string; tone: string }][]
 
 function iso(d: Date) { return dateParts(d.toISOString()).date }
+function purchaseLines(value?: string | null, fallback?: string | null) {
+  const text = (value || fallback || '').trim()
+  if (!text) return []
+  const parts = text.split(/\r?\n|[；;，,]/).flatMap((part) => part.split('、'))
+    .map((part) => part.replace(/\s+/g, ' ').replace(/^[•·●\-]+/, '').trim())
+    .filter(Boolean)
+  if (parts.length <= 3) return parts
+  return [...parts.slice(0, 2), parts.slice(2).join('、')]
+}
 const filters = computed(() => {
   let start = '', end = ''
   if (range.value === 'today') start = iso(new Date())
@@ -66,7 +75,11 @@ onMounted(load)
 
 const counts = computed(() => data.value?.counts)
 const exportUrl = computed(() => `/api/leads/export${query(filters.value)}`)
-const items = computed(() => (data.value?.items || []).map((row) => ({ ...row, due: due(row.notice?.deadline_at || row.notice?.deadline) })))
+const items = computed(() => (data.value?.items || []).map((row) => ({
+  ...row,
+  due: due(row.notice?.deadline_at || row.notice?.deadline),
+  purchaseLines: purchaseLines(row.notice?.items, row.notice?.title || row.match_reason),
+})))
 // 整页为空的列隐藏；整页取值相同的评分写在状态行
 const hasOwner = computed(() => items.value.some((r) => r.owner))
 const hasRegion = computed(() => items.value.some((r) => r.company.region))
@@ -109,7 +122,7 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
         <a :href="exportUrl" class="el-button" data-action-id="A-308"><Icon name="download" :size="16" /><span>导出筛选结果<template v-if="data">（{{ data.total }} 条）</template></span></a>
       </div>
       <div class="chips status-row">
-        <button v-for="[k, s] in STATUSES" :key="k" type="button" class="chip" :class="{ on: status === k, zero: !counts?.[k] }" data-action-id="A-302" @click="status = k">
+        <button v-for="[k, s] in STATUSES" :key="k" type="button" class="chip" :class="[{ on: status === k, zero: !counts?.[k] }, `tone-${s.tone}`]" data-action-id="A-302" @click="status = k">
           {{ s.label }}<span class="count">{{ counts?.[k] ?? '' }}</span></button>
         <button type="button" class="chip" :class="{ on: !status }" data-action-id="A-302" @click="status = ''">全部<span class="count">{{ counts?.all ?? '' }}</span></button>
         <span class="grow" />
@@ -128,13 +141,19 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
           </el-table-column>
           <el-table-column label="采购内容" min-width="280" header-align="center">
             <template #default="{ row }">
-              <span class="cell-clip" :title="row.notice?.title || row.match_reason"><span v-if="row.notice?.kind_label" class="tag plain kind">{{ row.notice.kind_label }}</span>{{ row.notice?.title || row.match_reason || '—' }}</span>
+              <div class="purchase-cell" :title="row.notice?.title || row.match_reason">
+                <span v-if="row.notice?.kind_label" class="tag plain kind">{{ row.notice.kind_label }}</span>
+                <ul v-if="row.purchaseLines.length" class="purchase-list">
+                  <li v-for="(line, index) in row.purchaseLines" :key="`${index}-${line}`">{{ line }}</li>
+                </ul>
+                <span v-else class="muted">—</span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="预算（万元）" width="120" header-align="center" align="right">
             <template #default="{ row }"><span class="num money">{{ wan(row.notice?.budget ?? row.notice?.amount) }}</span></template>
           </el-table-column>
-          <el-table-column label="发布" width="84" align="center"><template #default="{ row }"><span class="num muted">{{ monthDay(row.notice?.published_on) }}</span></template></el-table-column>
+          <el-table-column label="发布" width="120" align="center"><template #default="{ row }"><span class="num muted">{{ monthDay(row.notice?.published_on) }}</span></template></el-table-column>
           <el-table-column label="投标截止" width="184" align="center">
             <template #default="{ row }"><span v-if="row.due.short" class="due"><span class="num">{{ row.due.short }}</span><span class="due-left" :class="row.due.tone">{{ row.due.label }}</span></span><span v-else class="muted">—</span></template>
           </el-table-column>
@@ -151,7 +170,7 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
           <el-table-column v-if="hasFollowup" label="下次跟进" width="120" align="center">
             <template #default="{ row }"><span class="num">{{ row.next_followup_at ? row.next_followup_at.slice(5, 16) : '—' }}</span></template>
           </el-table-column>
-          <el-table-column label="创建" width="84" align="center"><template #default="{ row }"><span class="num muted">{{ monthDay(dateParts(row.created_at).date) }}</span></template></el-table-column>
+          <el-table-column label="创建" width="120" align="center"><template #default="{ row }"><span class="num muted">{{ monthDay(dateParts(row.created_at).date) }}</span></template></el-table-column>
           <el-table-column label="操作" width="72" align="center">
             <template #default="{ row }"><RouterLink :to="`/leads/${row.id}`" data-action-id="A-305">打开</RouterLink></template>
           </el-table-column>
@@ -165,7 +184,12 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
         <div class="mobile">
           <RouterLink v-for="row in items" :key="row.id" :to="`/leads/${row.id}`" class="mcard" data-action-id="A-305">
             <div class="mrow"><span class="cell-main">{{ row.company.name }}</span><span class="tag" :class="LEAD_STATUS[row.status].tone">{{ row.status_label }}</span></div>
-            <div class="mval">{{ row.notice?.title || row.match_reason || '—' }}</div>
+            <div class="mval" :title="row.notice?.title || row.match_reason">
+              <ul v-if="row.purchaseLines.length" class="purchase-list">
+                <li v-for="(line, index) in row.purchaseLines" :key="`${index}-${line}`">{{ line }}</li>
+              </ul>
+              <span v-else class="muted">—</span>
+            </div>
             <div class="mrow"><span v-if="row.due.short" class="due"><span class="num muted">截止 {{ row.due.short }}</span><span class="due-left" :class="row.due.tone">{{ row.due.label }}</span></span><span v-else /><b class="num">{{ wan(row.notice?.budget ?? row.notice?.amount) }} 万元</b></div>
           </RouterLink>
           <div v-if="data && !data.items.length" class="empty">没有线索</div>
@@ -186,7 +210,18 @@ const rowClass = ({ row }: { row: LeadItem }) => (row.id === flash.value ? 'flas
 .owner { width: 140px; }
 .head :deep(.el-date-editor--daterange) { --el-date-editor-width: 240px; width: 240px; flex: none; }
 .status-row { padding: 0 16px 12px; }
+.chip[class*="tone-"] { transition: color .16s ease, background-color .16s ease, border-color .16s ease; }
+.chip.tone-brand:hover, .chip.tone-brand.on { color: var(--accent-hover); background: var(--accent-tint); border-color: transparent; }
+.chip.tone-warn:hover, .chip.tone-warn.on { color: var(--warn); background: var(--warn-tint); border-color: transparent; }
+.chip.tone-teal:hover, .chip.tone-teal.on { color: var(--teal); background: var(--teal-tint); border-color: transparent; }
+.chip.tone-purple:hover, .chip.tone-purple.on { color: var(--purple); background: var(--purple-tint); border-color: transparent; }
+.chip.tone-ok:hover, .chip.tone-ok.on { color: var(--ok); background: var(--ok-tint); border-color: transparent; }
+.chip.tone-grey:hover, .chip.tone-grey.on { color: var(--ink-2); background: var(--subtle); border-color: transparent; }
 .kind { margin-right: 8px; vertical-align: 1px; }
+.purchase-cell { min-width: 0; color: var(--ink-2); }
+.purchase-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; line-height: 20px; }
+.purchase-list li { position: relative; overflow: hidden; padding-left: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.purchase-list li::before { content: ''; position: absolute; top: 8px; left: 1px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .open-only { display: inline-flex; align-items: center; gap: 8px; margin-left: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
 .money { font-weight: 600; color: var(--ink); }
 .status-select { width: 100px; }
@@ -201,7 +236,9 @@ a.el-button { text-decoration: none; }
   .mobile { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
   .mcard { display: flex; flex-direction: column; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--ink); }
   .mrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 24px; }
-  .mval { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mval { color: var(--ink-2); min-width: 0; }
+  .mval .purchase-list { gap: 1px; }
+  .mval .purchase-list li { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .owner, .seg { width: 100%; max-width: none; }
   .head :deep(.el-date-editor--daterange) { --el-date-editor-width: 100%; width: 100%; }
 }

@@ -141,7 +141,7 @@ const trendTitle = computed(() => {
           <div class="card-title pad"><Icon name="history" :size="18" /><span class="grow">最近研究</span>
             <RouterLink to="/workbench" class="extra">进入工作台</RouterLink></div>
           <div v-if="!data.recent_jobs.length" class="empty">暂无研究</div>
-          <RouterLink v-for="j in data.recent_jobs" :key="j.id" :to="`/c/${j.conversation_id}`" class="job-row" data-action-id="A-004">
+          <RouterLink v-for="j in data.recent_jobs" :key="j.id" :to="`/c/${j.conversation_id}`" class="job-row" :class="`job-${j.status}`" data-action-id="A-004">
             <span class="job-icon" :class="j.mode"><Icon :name="j.mode === 'company' ? 'company' : 'search'" :size="18" /></span>
             <span class="grow"><span class="job-title">{{ j.title }}</span><span class="cell-sub">{{ j.mode === 'company' ? '查企业' : '找买家' }} · {{ dateParts(j.created_at).date }} {{ dateParts(j.created_at).time }}</span></span>
             <span class="tag" :class="JOB_STATUS[j.status].tone">{{ JOB_STATUS[j.status].label }}</span>
@@ -171,7 +171,12 @@ const trendTitle = computed(() => {
 .sub-title { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .pad { padding: 14px 16px 6px; margin: 0; }
 .extra { font-size: 14px; font-weight: 400; }
-.job-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--ink); }
+.job-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--ink); transition: background-color .16s ease, border-color .16s ease; }
+.job-row.job-running { background: #f8faff; }
+.job-row.job-awaiting_user { background: #fffdf7; }
+.job-row.job-partial { background: #fffaf5; }
+.job-row.job-failed { background: #fffafa; }
+.job-row.job-completed:hover, .job-row.job-queued:hover, .job-row.job-paused:hover { background: var(--canvas); }
 .job-row:hover { background: var(--canvas); }
 .job-icon { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); color: var(--ink-2); flex: none; }
 .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }

@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
-import type { Handover, JobMetrics, JobStatus, ToolCall } from './types'
+import type { Handover, JobMetrics, JobStatus, SearchRow, StagePath, ToolCall } from './types'
 
-const TERMINAL: JobStatus[] = ['completed', 'partial', 'failed', 'paused', 'awaiting_user']
+const TERMINAL: JobStatus[] = ['completed', 'partial', 'failed', 'paused', 'awaiting_user', 'awaiting_input']
 
 export interface JobState {
   id: string
@@ -18,12 +18,14 @@ export interface JobState {
   progress: { candidates?: number; to_read?: number }
   resultVersion: number
   title: string
+  path: StagePath[]
+  rows: SearchRow[]
   syncedAt: number
 }
 
 export function emptyJob(id: string, status: JobStatus = 'queued'): JobState {
   return reactive({ id, status, stage: '', stageLabel: '', tools: [], draft: '', replyId: '', final: false,
-    handover: {}, error: '', metrics: {}, progress: {}, resultVersion: 0, title: '', syncedAt: Date.now() }) as JobState
+    handover: {}, error: '', metrics: {}, progress: {}, resultVersion: 0, title: '', path: [], rows: [], syncedAt: Date.now() }) as JobState
 }
 
 export function isTerminal(status: JobStatus): boolean {
@@ -42,11 +44,16 @@ export function followJob(state: JobState, onEnd: () => void): () => void {
       // 总用时 = 事件里的已用时 + 事件发生后经过的时间；刷新页面补发的历史事件按发生时间计算
       Object.assign(state, { status: data.status, stage: data.stage, metrics: data.metrics || {}, handover: data.handover || {}, error: data.error || '',
         syncedAt: (data.ts && Date.parse(data.ts)) || Date.now() })
+      if (data.status === 'replanning') { state.final = false; state.draft = ''; state.replyId = '' }
     },
     stage: (data) => { state.stage = data.stage; state.stageLabel = data.label },
+    'stage.started': (data) => { upsertPath(state, { ...data, status: 'running' }) },
+    'stage.completed': (data) => { upsertPath(state, { ...data, status: 'completed' }) },
+    'search.route': (data) => { upsertPath(state, { ...data, stage: data.stage || 'web_search', status: data.status || 'running' }) },
     title: (data) => { state.title = data.title },
     progress: (data) => { state.progress = data },
     result: () => { state.resultVersion++ },
+    'result.row': (data) => { upsertRow(state, data) },
     'tool.started': (data) => { upsertTool(state, { ...data, status: 'running' }) },
     'tool.finished': (data) => { upsertTool(state, data) },
     'message.delta': (data) => {
@@ -82,4 +89,19 @@ function upsertTool(state: JobState, call: ToolCall) {
   // 开始时间取事件发生时间；旧事件没有时间时取收到的时间
   if (index < 0) state.tools.push({ ...call, startedAt: (call.ts && Date.parse(call.ts)) || Date.now() })
   else state.tools[index] = { ...state.tools[index], ...call }
+}
+
+function upsertPath(state: JobState, path: StagePath) {
+  const index = state.path.findIndex((item) => item.stage === path.stage)
+  if (index < 0) state.path.push(path)
+  else state.path[index] = { ...state.path[index], ...path }
+}
+
+function upsertRow(state: JobState, row: SearchRow) {
+  if (!row.url) return
+  const normalize = (value: string) => value.toLowerCase().replace(/#.*$/, '').replace(/\/$/, '')
+  const key = normalize(row.url)
+  const index = state.rows.findIndex((item) => normalize(item.url) === key)
+  if (index < 0) state.rows.push({ ...row, points: row.points?.slice(0, 3) })
+  else state.rows[index] = { ...state.rows[index], ...row, points: (row.points || state.rows[index].points || []).slice(0, 3) }
 }
