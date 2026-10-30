@@ -13,6 +13,8 @@ export const JOB_STATUS: Record<JobStatus, { label: string; tone: string }> = {
   queued: { label: '排队中', tone: 'grey' },
   running: { label: '运行中', tone: 'brand' },
   awaiting_user: { label: '等待处理', tone: 'warn' },
+  awaiting_input: { label: '等待补充', tone: 'warn' },
+  replanning: { label: '重新规划', tone: 'brand' },
   paused: { label: '已暂停', tone: 'grey' },
   completed: { label: '完成', tone: 'ok' },
   partial: { label: '部分完成', tone: 'signal' },

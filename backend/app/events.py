@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from .db import Job, JobEvent, Session
 
-TERMINAL = {'completed', 'partial', 'failed', 'paused', 'awaiting_user'}
+TERMINAL = {'completed', 'partial', 'failed', 'paused', 'awaiting_user', 'awaiting_input'}
 _waiters: dict[str, asyncio.Event] = {}
 
 

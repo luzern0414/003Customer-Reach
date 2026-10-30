@@ -8,8 +8,8 @@ NoticeKind = Literal['intent', 'tender', 'change', 'candidate', 'award', 'contra
 
 class Plan(BaseModel):
     """理解用户需求后的研究计划。"""
-    mode: Literal['find_buyers', 'company', 'chat'] = Field(
-        description='find_buyers=描述产品找正在采购的买家；company=查询指定企业的采购、中标、上下游；chat=问答或追问已有结果，不需要检索')
+    mode: Literal['find_buyers', 'company', 'search', 'chat'] = Field(
+        description='find_buyers=描述产品找正在采购的买家；company=查询指定企业的采购、中标、上下游；search=通用全网检索；chat=问答或追问已有结果，不需要检索')
     title: str = Field(description='12 字以内的任务标题，如“防火墙买家研究”“航天广通研究”')
     product: str = Field('', description='find_buyers：用户销售的产品与能力摘要')
     keywords: list[str] = Field(default_factory=list,
@@ -18,6 +18,27 @@ class Plan(BaseModel):
     regions: list[str] = Field(default_factory=list, description='限定地区（省或市），无则空')
     days: int = Field(0, description='时间范围（天），用户未说明则 0')
     exclusions: list[str] = Field(default_factory=list, description='用户明确排除的对象或类型')
+    needs_clarification: bool = Field(False, description='信息不足时先澄清，不启动搜索')
+    questions: list[str] = Field(default_factory=list, description='澄清阶段最多三个必要问题')
+    language: Literal['auto', 'zh', 'en', 'mixed'] = 'auto'
+    query: str = Field('', description='通用搜索的原始问题')
+    result_columns: list[str] = Field(default_factory=list, description='通用结果需要的列名')
+
+
+class WebQuery(BaseModel):
+    query: str
+    language: Literal['zh', 'en', 'mixed']
+    purpose: str = ''
+
+
+class WebExtract(BaseModel):
+    relevant: bool
+    title: str = ''
+    language: Literal['zh', 'en', 'mixed'] = 'mixed'
+    published_on: str = ''
+    summary: str = ''
+    points: list[str] = Field(default_factory=list, max_length=3)
+    quote: str = ''
 
 
 class Keywords(BaseModel):

@@ -1,6 +1,6 @@
 // 与 backend/app/services.py、main.py 的响应结构一一对应。
 
-export type JobStatus = 'queued' | 'running' | 'awaiting_user' | 'paused' | 'completed' | 'partial' | 'failed'
+export type JobStatus = 'queued' | 'running' | 'awaiting_user' | 'awaiting_input' | 'replanning' | 'paused' | 'completed' | 'partial' | 'failed'
 export type LeadStatus = 'new' | 'verifying' | 'contacted' | 'following' | 'won' | 'invalid'
 
 export interface Handover {
@@ -21,7 +21,7 @@ export interface JobMetrics {
 
 export interface Job {
   id: string
-  mode: '' | 'find_buyers' | 'company' | 'chat'
+  mode: '' | 'find_buyers' | 'company' | 'search' | 'chat'
   status: JobStatus
   stage: string
   metrics: JobMetrics

@@ -80,6 +80,7 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, default='')
     attachment_ids: Mapped[list] = mapped_column(JSON, default=list)
     job_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    request_id: Mapped[str | None] = mapped_column(String(96), nullable=True, index=True)
     created_at: Mapped[str] = mapped_column(String(32), default=now)
 
 
@@ -110,6 +111,7 @@ class Job(Base):
     handover: Mapped[dict] = mapped_column(JSON, default=dict)
     crawl_folder: Mapped[str] = mapped_column(String(500), default='')
     reply_message_id: Mapped[str | None] = mapped_column(String(32))
+    request_id: Mapped[str | None] = mapped_column(String(96), nullable=True, index=True)
     error: Mapped[str] = mapped_column(Text, default='')
     created_at: Mapped[str] = mapped_column(String(32), default=now)
     started_at: Mapped[str | None] = mapped_column(String(32))
@@ -320,6 +322,17 @@ def init_db() -> None:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE notices ADD COLUMN deadline_at VARCHAR(16) DEFAULT ''"))
             connection.execute(text('CREATE INDEX IF NOT EXISTS ix_notices_deadline_at ON notices (deadline_at)'))
+    for table in ('messages', 'jobs'):
+        columns = {c['name'] for c in inspect(engine).get_columns(table)}
+        if 'request_id' not in columns:
+            with engine.begin() as connection:
+                connection.execute(text(f'ALTER TABLE {table} ADD COLUMN request_id VARCHAR(96)'))
+                connection.execute(text(f'CREATE INDEX IF NOT EXISTS ix_{table}_request_id ON {table} (request_id)'))
+    with engine.begin() as connection:
+        connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_conversation_request '
+                                'ON messages (conversation_id, request_id) WHERE request_id IS NOT NULL'))
+        connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_conversation_request '
+                                'ON jobs (conversation_id, request_id) WHERE request_id IS NOT NULL'))
 
 
 def get_settings() -> dict:
