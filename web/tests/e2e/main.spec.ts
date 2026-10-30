@@ -4,10 +4,9 @@ const USER = process.env.E2E_USER || 'admin'
 const PASSWORD = process.env.E2E_PASSWORD || 'admin'
 
 async function login(page: Page) {
-  await page.goto('/login')
-  await page.locator('input[autocomplete=username]').fill(USER)
-  await page.locator('input[type=password]').fill(PASSWORD)
-  await page.locator('button.submit').click()
+  const response = await page.request.post('/api/auth/login', { data: { username: USER, password: PASSWORD } })
+  expect(response.ok()).toBe(true)
+  await page.goto('/workbench')
   await expect(page.locator('.side .brand')).toBeVisible()
 }
 
