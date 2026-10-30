@@ -31,6 +31,10 @@ class WebQuery(BaseModel):
     purpose: str = ''
 
 
+class WebQueryPlan(BaseModel):
+    queries: list[WebQuery] = Field(default_factory=list, max_length=6)
+
+
 class WebExtract(BaseModel):
     relevant: bool
     title: str = ''

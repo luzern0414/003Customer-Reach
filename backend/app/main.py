@@ -129,6 +129,7 @@ class MessageIn(BaseModel):
     attachment_ids: list[str] = Field(default_factory=list, max_length=5)
     mode: str = ''
     company: str = ''
+    request_id: str | None = Field(default=None, max_length=96)
 
 
 class ContinueIn(BaseModel):
@@ -154,8 +155,11 @@ def get_conversation(conversation_id: str, request: Request):
 @app.post('/api/conversations/{conversation_id}/messages', status_code=202)
 async def send_message(conversation_id: str, body: MessageIn, request: Request):
     result = services.submit(conversation_id, body.content.strip(), body.attachment_ids, request.state.user,
-                             body.mode, body.company)
-    runner.start(result['job']['id'])
+                             body.mode, body.company, body.request_id)
+    if result.get('supplemented'):
+        runner.replan(result['job']['id'])
+    else:
+        runner.start(result['job']['id'])
     return result
 
 

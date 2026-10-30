@@ -55,6 +55,28 @@ def pause(job_id: str) -> bool:
     return False
 
 
+def replan(job_id: str) -> None:
+    """取消当前执行并从理解阶段重算计划，保留已取得的来源与证据。"""
+    task = _tasks.get(job_id)
+    if task:
+        task.cancel()
+    with Session.begin() as db:
+        job = db.get(Job, job_id)
+        if not job:
+            return
+        state = dict(job.plan or {})
+        state['replan_from'] = 'understand'
+        state['done'] = [stage for stage in state.get('done', []) if stage == 'understand']
+        job.plan = state
+        job.status = 'replanning'
+        job.stage = 'understand'
+        job.handover = {}
+        job.error = ''
+        metrics = dict(job.metrics or {})
+    emit(job_id, 'status', {'status': 'replanning', 'stage': 'understand', 'metrics': metrics, 'handover': {}, 'error': ''})
+    start(job_id)
+
+
 async def resume(job_id: str, choice: str = '', skip: bool = False) -> None:
     """继续任务。identity 交接写入所选企业；login/verify 交接关闭 LuzCrawl 停放页后重读，skip 跳过该站点。"""
     with Session.begin() as db:

@@ -70,6 +70,8 @@ _CCGP = 'https://search.ccgp.gov.cn/bxsearch?' + urlencode({
 # 必应 site: 限定可按网站类型检索（gov.cn、央企采购平台、edu.cn），并可翻页（first=11、21）。
 # ccgp 自定义时间跨度最长一年（3 年返回 0 条），按企业检索时分年查询；ggzy 只检索标题，不用于按企业检索。
 SITES: dict[str, Site] = {site.id: site for site in [
+    Site('web', '全网搜索', 'web', r'^https?://', template='https://cn.bing.com/search?q={q}&first={offset}',
+         pages=2, web=True, note='通用搜索发现入口；结果网页统一由 LuzCrawl 读取'),
     Site('ccgp', '中国政府采购网', 'procurement', r'ccgp\.gov\.cn/cggg/', template=_CCGP, by_company=True, max_days=365, pages=3,
          note='全国政府采购公告，列表含采购人与公告类型'),
     Site('ggzy', '全国公共资源交易平台', 'procurement', r'ggzy\.gov\.cn/information/deal/html/a/', platform='ggzy',

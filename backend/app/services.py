@@ -78,7 +78,7 @@ def create_conversation(user: dict) -> dict:
 
 
 def job_view(job: Job) -> dict:
-    return _row(job, 'id', 'mode', 'status', 'stage', 'metrics', 'handover', 'error', 'reply_message_id',
+    return _row(job, 'id', 'mode', 'status', 'stage', 'metrics', 'handover', 'error', 'reply_message_id', 'request_id',
                 'created_at', 'finished_at')
 
 
@@ -94,30 +94,55 @@ def conversation_detail(conversation_id: str, user: dict) -> dict:
             for aid in message.attachment_ids or []:
                 if aid not in attachments and (item := db.get(Attachment, aid)):
                     attachments[aid] = attachment_view(item)
-            result['messages'].append({**_row(message, 'id', 'role', 'content', 'job_id', 'created_at'),
+            result['messages'].append({**_row(message, 'id', 'role', 'content', 'job_id', 'request_id', 'created_at'),
                                        'attachments': [attachments[a] for a in message.attachment_ids or [] if a in attachments]})
         return result
 
 
-def submit(conversation_id: str, content: str, attachment_ids: list[str], user: dict, mode: str = '', company: str = '') -> dict:
+def submit(conversation_id: str, content: str, attachment_ids: list[str], user: dict, mode: str = '', company: str = '',
+           request_id: str | None = None) -> dict:
     with Session.begin() as db:
         conversation = _own(_get(db, Conversation, conversation_id), user)
-        busy = db.scalar(select(Job.id).where(Job.conversation_id == conversation_id,
-                                              Job.status.in_(['queued', 'running', 'awaiting_user'])))
+        request_id = (request_id or '').strip()[:96] or None
+        if request_id:
+            existing = db.scalar(select(Message).where(Message.conversation_id == conversation_id,
+                                                       Message.request_id == request_id))
+            if existing:
+                existing_job = db.get(Job, existing.job_id) if existing.job_id else None
+                if existing_job:
+                    return {'message_id': existing.id, 'job': job_view(existing_job),
+                            'supplemented': existing_job.message_id != existing.id}
+        busy = db.scalar(select(Job).where(Job.conversation_id == conversation_id,
+                                           Job.status.in_(['queued', 'running', 'awaiting_user', 'awaiting_input',
+                                                           'replanning', 'paused', 'partial'])))
         if busy:
-            raise ValueError('当前对话还有进行中的任务')
+            message = Message(conversation_id=conversation_id, role='user', content=content,
+                              attachment_ids=[a for a in attachment_ids if _own_attachment(db, a, user)],
+                              job_id=busy.id, request_id=request_id)
+            db.add(message)
+            db.flush()
+            state = dict(busy.plan or {})
+            supplements = list(state.get('supplements') or [])
+            supplements.append({'message_id': message.id, 'content': content, 'created_at': message.created_at})
+            state['supplements'] = supplements
+            state['replan_from'] = 'understand'
+            busy.plan = state
+            busy.status = 'replanning'
+            busy.handover = {}
+            conversation.updated_at = now()
+            return {'message_id': message.id, 'job': job_view(busy), 'supplemented': True}
         auth.consume(db, user['id'])
         message = Message(conversation_id=conversation_id, role='user', content=content,
-                          attachment_ids=[a for a in attachment_ids if _own_attachment(db, a, user)])
+                          attachment_ids=[a for a in attachment_ids if _own_attachment(db, a, user)], request_id=request_id)
         db.add(message)
         db.flush()
         hints = {k: v for k, v in (('mode_hint', mode), ('company_hint', company)) if v}
-        job = Job(conversation_id=conversation_id, message_id=message.id, plan=hints)
+        job = Job(conversation_id=conversation_id, message_id=message.id, request_id=request_id, plan=hints)
         db.add(job)
         conversation.updated_at = now()
         db.flush()
         message.job_id = job.id
-        return {'message_id': message.id, 'job': job_view(job)}
+        return {'message_id': message.id, 'job': job_view(job), 'supplemented': False}
 
 
 def job_detail(job_id: str) -> dict:

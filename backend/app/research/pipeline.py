@@ -9,6 +9,7 @@ import logging
 import re
 import time
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit, urlunsplit
 
 from datetime import date
 
@@ -21,8 +22,8 @@ from ..db import (Attachment, Company, Conversation, Job, JobCompany, Knowledge,
 from ..events import emit
 from ..sites import SITES, Site, domain_of, enabled, get_site, known_domain, regional_sites, site_of, source_tier
 from . import quality, store
-from .schemas import CompanyExtract, Identity, Keywords, ListResult, ListRow, NoticeExtract, Plan
-from .verify import company_name, norm
+from .schemas import CompanyExtract, Identity, Keywords, ListResult, ListRow, NoticeExtract, Plan, WebExtract, WebQuery, WebQueryPlan
+from .verify import company_name, grounded, norm
 
 log = logging.getLogger('dealradar.pipeline')
 
@@ -30,9 +31,12 @@ STAGES = {
     'find_buyers': ['understand', 'search', 'screen', 'read', 'expand', 'enrich', 'answer'],
     'company': ['understand', 'identify', 'search', 'screen', 'read', 'profile', 'answer'],
     'chat': ['understand', 'answer'],
+    'search': ['understand', 'web_plan', 'web_discover', 'web_search', 'web_read', 'web_verify', 'answer'],
 }
 STAGE_LABELS = {'understand': '理解需求', 'identify': '确认企业', 'search': '检索公告', 'screen': '筛选公告',
-                'read': '阅读原文', 'expand': '扩大检索', 'enrich': '补充工商信息', 'profile': '核对工商信息', 'answer': '整理结论'}
+                'read': '阅读原文', 'expand': '扩大检索', 'enrich': '补充工商信息', 'profile': '核对工商信息',
+                'web_plan': '生成查询计划', 'web_discover': '发现来源', 'web_search': '通用检索',
+                'web_read': '读取原文', 'web_verify': '引用核验', 'answer': '整理结论'}
 KIND_LABELS = {'intent': '采购意向', 'tender': '招标公告', 'change': '更正公告', 'candidate': '中标候选',
                'award': '中标结果', 'contract': '合同公告', 'other': '公告'}
 
@@ -59,6 +63,29 @@ def _excerpt(flat: str, title: str, width: int = 120) -> str:
 
 def _outside_mainland(title: str, buyer: str, region: str) -> bool:
     return bool(_NON_MAINLAND.search(f'{buyer} {region}')) or sum(ch in _TRADITIONAL for ch in f'{title}{buyer}') >= 2
+
+
+def _web_url(url: str) -> str:
+    """用于去重的网页地址：忽略大小写主机、片段与多余结尾斜杠。"""
+    parts = urlsplit(url or '')
+    if parts.scheme.lower() not in ('http', 'https') or not parts.netloc:
+        return ''
+    host = parts.hostname.lower() if parts.hostname else ''
+    path = parts.path or '/'
+    if path != '/':
+        path = path.rstrip('/') or '/'
+    return urlunsplit((parts.scheme.lower(), host + (f':{parts.port}' if parts.port else ''), path, parts.query, ''))
+
+
+def dedupe_web_candidates(rows: list[dict]) -> list[dict]:
+    result, seen = [], set()
+    for row in rows:
+        key = _web_url(row.get('url', ''))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append({**row, 'url': key})
+    return result
 
 
 class Handover(Exception):
@@ -167,6 +194,8 @@ class Run:
                     break
                 stage = pending[0]
                 emit(self.job_id, 'stage', {'stage': stage, 'label': STAGE_LABELS[stage]})
+                emit(self.job_id, 'stage.started', {'stage': stage, 'label': STAGE_LABELS[stage]})
+                stage_started = time.monotonic()
                 self.save(stage=stage)
                 try:
                     if stage != 'answer':
@@ -181,6 +210,13 @@ class Run:
                     self.state['done'] = [s for s in self.state.get('done', []) if s not in redo]
                 else:
                     self.state.setdefault('done', []).append(stage)
+                    history = self.state.setdefault('stage_history', [])
+                    entry = {'stage': stage, 'label': STAGE_LABELS[stage], 'status': 'completed',
+                             'elapsed_ms': round((time.monotonic() - stage_started) * 1000),
+                             'count': self._stage_count(stage), 'error': ''}
+                    history[:] = [item for item in history if item.get('stage') != stage]
+                    history.append(entry)
+                    emit(self.job_id, 'stage.completed', entry)
                 self.save()
         finally:
             llm.USAGE.reset(token)
@@ -191,6 +227,9 @@ class Run:
 
     def final_status(self) -> str:
         """有结果、没有读取以外的问题、未读到的不超过已读篇数的四分之一时记为完成，否则为部分完成；问题照常列在报告里。"""
+        if self.plan.mode == 'search':
+            verified = sum(1 for row in self.state.get('search_results', []) if row.get('status') == 'verified')
+            return 'completed' if verified and not self.problems else ('partial' if verified else 'partial')
         read = list(self.state.get('read', {}).values())
         failed = read.count('failed')
         ok = sum(1 for state in read if state in ('saved', 'reused'))
@@ -200,23 +239,40 @@ class Run:
                 JobCompany.job_id == self.job_id, JobCompany.role.in_(('buyer', 'target'))))
         return 'completed' if found and not others and failed * 4 <= ok else 'partial'
 
+    def _stage_count(self, stage: str) -> int:
+        if stage == 'web_read':
+            return sum(1 for row in self.state.get('search_results', []) if row.get('source_id'))
+        if stage == 'web_verify':
+            return sum(1 for row in self.state.get('search_results', []) if row.get('status') == 'verified')
+        if stage in ('web_discover', 'web_search'):
+            return len(self.state.get('search_candidates', []))
+        if stage == 'web_plan':
+            return len(self.state.get('search_queries', []))
+        return 0
+
     # ---------- 阶段 ----------
 
     async def understand(self) -> None:
         with Session() as db:
             message = db.get(Message, self.message_id)
+            task_messages = list(db.scalars(select(Message).where(Message.job_id == self.job_id,
+                                                                  Message.role == 'user').order_by(Message.created_at)))
             history = list(db.scalars(select(Message).where(Message.conversation_id == self.conversation_id,
                                                             Message.id != self.message_id)
                                       .order_by(Message.created_at.desc()).limit(6)))
-            files = [db.get(Attachment, aid) for aid in message.attachment_ids or []]
+            files = [db.get(Attachment, aid) for item in task_messages for aid in item.attachment_ids or []]
             notes = list(db.scalars(select(Knowledge).where(Knowledge.active == 1).limit(30)))
         attachments = '\n\n'.join(f'【附件：{f.filename}】\n{f.text[:6000]}' for f in files if f)
+        request_text = '\n'.join(
+            f'{"原始任务" if index == 0 else "执行中补充"}：{item.content}'
+            for index, item in enumerate(task_messages or [message])
+        )
         prompt = '\n\n'.join(filter(None, [
             f'我方公司：{self.settings["company_name"]}\n{self.settings["company_profile"]}' if self.settings['company_name'] else '',
             '长期偏好与排除：\n' + '\n'.join(f'- [{n.kind}] {n.body[:200]}' for n in notes) if notes else '',
             '最近对话：\n' + '\n'.join(f'{m.role}: {m.content[:300]}' for m in reversed(history)) if history else '',
             attachments,
-            f'今天是 {date.today().isoformat()}。当前请求：{message.content}',
+            f'今天是 {date.today().isoformat()}。\n{request_text}',
             '请判断研究模式并给出研究计划。追问已有结果、问候、解释类问题用 chat。']))
         async with self.tool('understand', '理解需求') as info:
             plan = await llm.structured(Plan, prompt)
@@ -270,6 +326,151 @@ class Run:
             self.state['target_id'] = company.id
         store.link_job(self.job_id, self.state['target_id'], 'target')
         emit(self.job_id, 'result', {'company_id': self.state['target_id']})
+
+    async def web_plan(self) -> None:
+        """生成不超过六条的中英文查询，并把查询意图保存在可恢复状态中。"""
+        plan = self.plan
+        raw = (plan.query or plan.title or '').strip()
+        async with self.tool('web_plan', '生成中英文查询计划') as info:
+            if raw:
+                prompt = (f'用户原始问题：{raw}\n用户语言：{plan.language}\n'
+                          '把同一个问题扩展成最多 3 条中文和最多 3 条英文网页检索词。可以翻译，不能添加原问题没有的新主题；'
+                          '每条写明 purpose，语言只用 zh/en/mixed。只返回结构化查询列表。')
+                result = await llm.structured(WebQueryPlan, prompt)
+                queries = result.queries[:6]
+            else:
+                queries = []
+            if not queries:
+                language = 'en' if plan.language == 'en' else 'zh' if plan.language == 'zh' else 'mixed'
+                queries = [WebQuery(query=raw or plan.title, language=language, purpose='原始问题')]
+            seen, normalized = set(), []
+            language_counts = {'zh': 0, 'en': 0, 'mixed': 0}
+            for query in queries:
+                value = query.query.strip()
+                if not value or value.lower() in seen:
+                    continue
+                if query.language in ('zh', 'en') and language_counts[query.language] >= 3:
+                    continue
+                seen.add(value.lower())
+                language_counts[query.language] = language_counts.get(query.language, 0) + 1
+                normalized.append({'query': value, 'language': query.language, 'purpose': query.purpose, 'status': 'queued'})
+            self.state['search_queries'] = normalized[:6]
+            info['count'] = len(normalized)
+        self.save()
+
+    async def web_discover(self) -> None:
+        """通过 LuzCrawl 读取搜索引擎结果页，允许结果指向任意 HTTP(S) 域名。"""
+        site = SITES['web']
+        candidates: list[dict] = []
+        source_ids = list(self.state.get('source_ids') or [])
+        folder = await self.folder()
+        engine_hosts = ('bing.com', 'microsoft.com', 'msn.com', 'live.com')
+        for item in self.state.get('search_queries', []):
+            query = item.get('query', '')
+            if not query:
+                continue
+            async with self.tool('web_discover', f'发现“{query[:50]}”的来源', site.id, site.search_url(query, 0)) as info:
+                page = await crawl.capture(site.search_url(query, 0), folder, self.browser, scrolls=3)
+                info['status'] = page.status
+                self.gate(page, site)
+                links = []
+                if page.ok:
+                    source_id = store.save_source(page, site.id, 'web-search', self.job_id)
+                    source_ids.append(source_id)
+                    page_host = domain_of(page.url)
+                    for link in page.links:
+                        url = _web_url(link.get('url', ''))
+                        host = domain_of(url)
+                        if not url or not host or any(host == h or host.endswith('.' + h) for h in engine_hosts):
+                            continue
+                        if page_host and (host == page_host or host.endswith('.' + page_host)):
+                            continue
+                        links.append({'title': (link.get('text') or link.get('title') or '').strip()[:500],
+                                      'url': url, 'domain': host, 'snippet': (link.get('snippet') or '').strip()[:500],
+                                      'language': item.get('language', 'mixed'), 'source_id': source_id})
+                candidates.extend(links)
+                info['count'] = len(links)
+                emit(self.job_id, 'search.route', {'stage': 'web_discover', 'query': query, 'language': item.get('language', 'mixed'),
+                                                   'status': page.status, 'count': len(links), 'url': page.url or site.search_url(query, 0)})
+                item['status'] = 'completed' if page.ok else page.status
+        self.state['source_ids'] = list(dict.fromkeys(source_ids))
+        self.state['search_candidates'] = dedupe_web_candidates(candidates)
+        self.save()
+
+    async def web_search(self) -> None:
+        """对发现到的任意来源去重排序，形成有限的读取队列。"""
+        candidates = dedupe_web_candidates(self.state.get('search_candidates') or [])
+        max_reads = max(int(self.settings.get('max_reads', 20)), 1)
+        self.state['search_candidates'] = candidates
+        self.state['search_to_read'] = candidates[:max_reads]
+        for item in self.state.get('search_queries', []):
+            if item.get('status') == 'queued':
+                item['status'] = 'completed'
+        async with self.tool('web_search', '整理通用搜索结果') as info:
+            info['count'] = len(candidates)
+        emit(self.job_id, 'search.route', {'stage': 'web_search', 'status': 'completed', 'count': len(candidates),
+                                           'queries': len(self.state.get('search_queries', []))})
+        self.save()
+
+    async def web_read(self) -> None:
+        """用 LuzCrawl 读取候选正文，并要求模型给出可连续核验的引用。"""
+        folder = await self.folder()
+        results = list(self.state.get('search_results') or [])
+        done = {row.get('url') for row in results}
+        async with self.tool('web_read', f'读取 {len(self.state.get("search_to_read", []))} 个来源') as info:
+            for candidate in self.state.get('search_to_read', []):
+                url = candidate.get('url', '')
+                if not url or url in done:
+                    continue
+                page = await crawl.capture(url, folder, self.browser, scrolls=4, timeout=150)
+                if page.needs_user:
+                    self.gate(page, SITES['web'])
+                if not page.ok:
+                    self.problems.append(f'{candidate.get("domain", "来源")}：{page.error or page.stop_reason or page.status}')
+                    results.append({**candidate, 'status': 'failed', 'error': page.error or page.stop_reason or page.status})
+                    done.add(url)
+                    continue
+                page.url = url
+                source_id = store.save_source(page, candidate.get('domain', 'web')[:64] or 'web', 'web', self.job_id)
+                async with self.tool('web_extract', f'抽取《{page.title[:40]}》', candidate.get('domain', 'web'), url) as extract_info:
+                    extract = await llm.structured(WebExtract,
+                                                   '只依据下面网页正文抽取与用户问题相关的信息。title、summary、points、published_on 必须来自正文；'
+                                                   'quote 必须是正文中的连续原文片段，不能拼接或改写；要点最多三条。\n\n'
+                                                   f'用户问题：{self.plan.query or self.plan.title}\n网页正文：\n{page.text[:16000]}')
+                    extract_info['status'] = 'captured'
+                row = {**candidate, 'relevant': extract.relevant,
+                       'title': extract.title or candidate.get('title') or page.title,
+                       'language': extract.language or candidate.get('language', 'mixed'),
+                       'published_on': extract.published_on, 'summary': extract.summary,
+                       'points': extract.points[:3], 'quote': extract.quote, 'source_id': source_id,
+                       'status': 'pending'}
+                results.append(row)
+                done.add(url)
+                emit(self.job_id, 'result.row', {**row, 'status': 'pending'})
+            info['count'] = sum(1 for row in results if row.get('source_id'))
+        self.state['search_results'] = results
+        self.save()
+
+    async def web_verify(self) -> None:
+        """只保留引用出现在 LuzCrawl 原文中的结果行。"""
+        with Session() as db:
+            texts = {row.get('source_id'): (db.get(Source, row.get('source_id')).text
+                                             if row.get('source_id') and db.get(Source, row.get('source_id')) else '')
+                     for row in self.state.get('search_results', [])}
+        verified_rows, problems = [], []
+        for row in dedupe_web_candidates(self.state.get('search_results') or []):
+            text = texts.get(row.get('source_id'), '')
+            if not row.get('relevant', True) or not row.get('title') or not row.get('url') or not grounded(row.get('quote', ''), text):
+                problems.append(f'引用核验失败：{row.get("title") or row.get("url") or "未命名来源"}')
+                continue
+            row = {**row, 'published_on': store._date(row.get('published_on', '')), 'points': (row.get('points') or [])[:3],
+                   'status': 'verified'}
+            verified_rows.append(row)
+            emit(self.job_id, 'result.row', row)
+        self.state['search_results'] = verified_rows
+        self.problems.extend(problems)
+        self.state['source_ids'] = list(dict.fromkeys(self.state.get('source_ids', []) + [r['source_id'] for r in verified_rows if r.get('source_id')]))
+        self.save()
 
     COMPANY_YEARS = 2
 

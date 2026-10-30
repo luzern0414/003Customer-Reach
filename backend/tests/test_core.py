@@ -107,7 +107,7 @@ def test_api_conversation_lead_flow(monkeypatch, ccgp_text):
     sent = client.post(f'/api/conversations/{conversation["id"]}/messages', json={'content': '找防火墙买家'})
     assert sent.status_code == 202 and started == [sent.json()['job']['id']]
     busy = client.post(f'/api/conversations/{conversation["id"]}/messages', json={'content': '再来'})
-    assert busy.status_code == 400
+    assert busy.status_code == 202 and busy.json()['supplemented'] is True
     company = client.get('/api/companies', params={'q': '船级社'}).json()['items'][0]
     lead = client.post(f'/api/companies/{company["id"]}/lead', json={}).json()
     patched = client.patch(f'/api/leads/{lead["id"]}', json={'status': 'contacted', 'owner': '王五'}).json()
